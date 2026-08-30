@@ -6,6 +6,7 @@ from .agent import (  # noqa: F401
     Conversation,
     ConversationMessage,
     FinancialFact,
+    EvidenceSource,
     ProactiveReview,
     ToolCall,
 )

@@ -32,9 +32,26 @@ class Settings(BaseSettings):
     enable_financial_integrations: bool = False
     enable_background_sync: bool = False
     enable_external_model: bool = False
+    enable_advisor_access: bool = False
+    enable_community_benchmarks: bool = False
+    enable_wellness_programs: bool = False
+    enable_data_exports: bool = False
+    financial_integration_provider: str | None = None
+    financial_integration_approval_reference: str | None = None
 
     @model_validator(mode="after")
     def validate_secrets(self):
+        if self.enable_background_sync and not self.enable_financial_integrations:
+            raise ValueError(
+                "ENABLE_BACKGROUND_SYNC requires ENABLE_FINANCIAL_INTEGRATIONS"
+            )
+        if self.enable_financial_integrations and (
+            not self.financial_integration_provider
+            or not self.financial_integration_approval_reference
+        ):
+            raise ValueError(
+                "Financial integrations require an approved provider and release approval reference"
+            )
         if self.environment.lower() in {"production", "staging"}:
             if not self.jwt_secret or len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET of at least 32 characters is required")

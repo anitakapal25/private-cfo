@@ -213,35 +213,39 @@ See [technology-stack.md](./technology-stack.md) for detailed recommendations.
 
 ## Future Evolution Path
 
-### Phase 1: Agent MVP (Partial — not production-ready)
+### Phase 1: Agent MVP (Implemented — release-gated)
 - Authenticated v1 conversations persist messages, agent runs, deterministic calculation records, tool-call evidence, short-lived payload-bound confirmations and sanitized audit events.
-- The React entry point is a chat-first host that renders missing-data, refusal and calculation-evidence states; production sign-in and browser validation remain planned.
-- Net-worth and recurring cash-flow intents use Decimal-based deterministic orchestration. A full financial-freedom projection still requires verified target and approved assumption inputs.
-- Document upload is encrypted locally; extraction is simulated and malware scanning is not implemented.
+- The React entry point is a chat-first host with email/password sign-in, structured scenario confirmation, and missing-data, refusal and calculation-evidence states. Real-browser validation remains pending.
+- Net-worth, recurring cash-flow and user-confirmed financial-freedom scenarios use versioned Decimal-based deterministic orchestration. The projection never invents return, inflation or withdrawal assumptions.
 - Intent routing is deterministic and tools are restricted by an explicit intent-scoped allow-list. A provider-neutral model boundary exists but remains disabled until privacy review and the model-release evaluation gate pass.
-- Goal setting and tracking (financial freedom targets)
+- Existing financial-freedom targets remain available as stored goals; action-plan mutation and proactive review generation belong to later milestones.
 - Privacy-first design with deterministic calculation engine
 - Audit coverage outside the v1 agent flow remains planned.
-- Backend and frontend prototypes build locally; production deployment and operational controls are planned.
+- Backend tests and the frontend type-check, lint and production build pass locally. PostgreSQL deployment verification and operational controls remain release gates.
 
 ### Phase 2: Enhanced Features (Current Focus)
-- **Advanced Scenario Simulation**: Monte Carlo simulations for market volatility, income variability, and expense fluctuations
-- **Insurance Planning Module**: Life, health, and property insurance needs analysis with coverage gap detection
-- **Tax Optimization Strategies**: Indian tax regime comparison (old vs new), deduction maximization, and tax-loss harvesting suggestions
-- **Investment Portfolio Analysis**: Asset allocation optimization, risk profiling, rebalancing recommendations, and goal-based investing
-- **Enhanced Document Processing**: Expanded support for Form 16, investment statements, loan agreements, and property documents
-- **Goal-Based Planning**: Multiple financial goal tracking (emergency fund, home purchase, education, retirement) with priority-based funding
-- **Cash Flow Forecasting**: 12-month forward-looking cash flow projections with scenario planning
-- **Debt Management Tools**: Loan amortization schedules, prepayment impact analysis, and debt snowball/avalanche strategies
+- **Milestone 2 verified financial memory — Implemented:** Authenticated users create candidate facts with provenance, observation time, confidence and sensitivity classification. Candidates never enter calculation context before explicit confirmation; conflicting confirmed values are superseded only by a separate confirm decision. Purpose-scoped context packets return only required verified fields and missing-field labels.
+- **Milestone 3 deterministic financial foundation — Implemented:** Versioned Decimal services cover net worth, monthly surplus and savings rate, emergency-reserve coverage, debt metrics, goal progress/projection and financial-freedom projections. Calculation records persist normalized inputs, fact provenance, assumptions, rule versions, as-of time, results and limitations. Current tax calculations remain fail-closed because their assumption catalogue is expired; this is a safety outcome, not an incomplete arithmetic path.
+- **Scenario planning — Partial**: Confirmed financial-freedom scenarios are deterministic and versioned. The legacy Monte Carlo implementation remains outside the v1 agent because it uses floating-point calculations and unreviewed embedded assumptions.
+- **Insurance planning — Partial**: The agent compares stored coverage with an explicit user-selected target. It does not select a coverage level or recommend a product.
+- **Tax optimization — Blocked**: The reviewed tax catalogue is expired; tax requests fail closed until current authoritative rules complete the calculation-release workflow.
+- **Investment analysis — Blocked at advice boundary**: Stored assets contribute to net worth, but personalized allocation, rebalancing and product guidance require separate regulatory review.
+- **Document processing — Blocked**: Malware scanning and sandboxed extraction are absent, so the v1 agent does not invoke the simulated document tools.
+- **Goal-based planning — Partial**: Active goal progress is calculated deterministically. Priority funding and confirmed action-plan mutation remain pending.
+- **Cash-flow forecasting — Implemented**: A versioned 12-month flat recurring scenario exposes the no-growth and one-time-item exclusions.
+- **Debt analysis — Partial**: Outstanding debt, monthly EMI and debt-to-income ratio are implemented. Amortization and prepayment comparisons remain pending.
 
 ### Phase 3: Ecosystem Integration
-- API for financial advisors to securely access client portfolios (with consent)
-- Direct integration with banking platforms via Account Aggregator framework (RBI-regulated)
-- Integration with investment platforms (mutual funds, stocks) for portfolio import
-- Community features (anonymized benchmarks against similar demographic profiles)
-- Employer-sponsored financial wellness programs with custom branding
-- API webhooks for triggering actions based on life events or market conditions
-- Export capabilities for tax filing and loan application documents
+- **Release gating — Implemented:** Phase 3 routers are absent by default and an authenticated capability endpoint reports non-sensitive status. Financial integrations require configured provider and approval references before startup.
+- **Advisor access — Blocked:** Legacy consent routes require role verification, scoped consent, expiry and complete access auditing before enablement.
+- **Account Aggregator — Blocked:** Existing simulated records are not an RBI-regulated integration. An approved provider, real consent protocol and specialist review are required.
+- **Investment-platform import — Blocked:** Provider contracts, real read-only APIs, credential lifecycle controls and reconciliation tests are absent.
+- **Community benchmarks — Blocked:** Cohort thresholds and re-identification controls are not implemented.
+- **Employer wellness — Blocked:** Tenant isolation and employer/employee data-boundary evidence are incomplete.
+- **External webhooks — Blocked:** SSRF-safe destinations, signing, replay defense and redacted delivery are incomplete.
+- **Tax and loan exports — Blocked:** Confirmation, minimization, encrypted short-lived artifacts and deletion coverage are incomplete.
+
+The release procedure and evidence requirements are defined in [the ecosystem integration workflow](workflows/ecosystem-release.md). No Phase 3 provider integration is represented as complete or production-ready.
 
 ### Phase 4: Intelligence Enhancement
 - Predictive financial modeling using machine learning for income/expense forecasting

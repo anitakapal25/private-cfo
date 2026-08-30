@@ -23,15 +23,18 @@ Status terms:
 
 | Capability | Status | Evidence / limitation |
 |---|---|---|
-| Chat-first agent UI | Partial | Typed conversation client and evidence rendering build successfully; production sign-in and browser tests remain pending |
+| Chat-first agent UI | Partial | Email/password sign-in, typed conversation client, confirmed scenario form and evidence rendering build successfully; browser tests remain pending |
 | FastAPI API | Partial | Routes exist; no production deployment definition |
 | Authentication | Partial | JWT verification and user-bound agent routes exist; rotation, revocation, MFA and rate limits are pending |
-| Deterministic calculations | Partial | Calculation tools exist; audit persistence and comprehensive golden tests are pending |
+| Deterministic financial foundation | Implemented | Versioned Decimal net-worth, cash-flow/savings-rate, emergency-fund, debt, goal and financial-freedom calculations have golden, boundary and determinism tests; current tax calculations remain separately blocked by stale rules |
+| Verified financial memory | Implemented | Purpose-scoped context uses confirmed facts only; candidates preserve evidence metadata, conflicts require an explicit decision, and supersession is audited |
+| Enhanced planning tools | Partial | Agent v1 provides versioned debt metrics, flat cash-flow forecasts, goal progress and user-selected insurance-gap comparisons; advanced simulations and action plans remain pending |
 | Document upload | Partial | Size, extension, signature checks and encrypted local storage exist; malware scanning and real extraction are pending |
 | Credential encryption | Partial | Fail-closed Fernet encryption exists; managed KMS and key rotation are pending |
 | Account Aggregator | Blocked | Data model is not an RBI-AA integration and must not be represented as one |
 | External webhooks | Blocked by default | Requires explicit configuration; production-grade egress control remains pending |
-| AI agent | Partial | Authenticated v1 conversations, deterministic intent routing, persisted runs and tool evidence exist; external model remains disabled pending its release gate |
+| Phase 3 ecosystem APIs | Blocked by default | Routers are not mounted without capability-specific configuration; provider, consent, privacy and operational release evidence remains pending |
+| AI agent | Partial | Phase 1 deterministic agent MVP is implemented with authenticated conversations, persisted runs, tool evidence, safety evaluations and confirmed freedom scenarios; external model remains disabled pending its release gate |
 | Audit trail | Partial | Agent runs, tool calls, calculations and sanitized audit events are persisted; broader mutation coverage remains pending |
 | DPDP operational compliance | Planned | Legal review, notices, consent lifecycle, rights handling and breach workflow are pending |
 
@@ -57,6 +60,7 @@ Operational workflows:
 - [Calculation release](workflows/calculation-release.md)
 - [Regulatory update](workflows/regulatory-update.md)
 - [Model release](workflows/model-release.md)
+- [Ecosystem integration release](workflows/ecosystem-release.md)
 - [Codex agent and skill audit](agent-skill-audit.md)
 
 ## Required review gates

@@ -1,22 +1,35 @@
 """Typed, authenticated API for the financial-freedom agent."""
 
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import hashlib
 import json
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.auth.manager import get_current_active_user
-from app.core.config import get_db
-from app.models.agent import AuditEvent, Confirmation, Conversation, ConversationMessage, ProactiveReview
+from app.core.config import Settings, get_db, get_settings
+from app.models.agent import AuditEvent, Confirmation, Conversation, ConversationMessage, FinancialFact, ProactiveReview
 from app.models.user import User
 from app.services.agent_orchestrator import AgentOrchestrator, audit_agent_run
+from app.services.financial_freedom import FreedomProjectionInputs
+from app.services.ecosystem_capabilities import get_ecosystem_capabilities
+from app.services.financial_context import ALLOWED_FACT_TYPES, FinancialContextService
 
 router = APIRouter()
+
+
+@router.get("/capabilities")
+def list_capabilities(
+    current_user: User = Depends(get_current_active_user),
+    settings: Settings = Depends(get_settings),
+):
+    """Expose release status without provider identifiers, secrets, or user data."""
+    return {"phase": 3, "capabilities": get_ecosystem_capabilities(settings)}
 
 
 class CreateConversationRequest(BaseModel):
@@ -31,8 +44,29 @@ class ConversationResponse(BaseModel):
     created_at: datetime
 
 
+class FreedomScenarioRequest(BaseModel):
+    current_age: int = Field(ge=18, lt=100)
+    target_age: int = Field(gt=18, le=100)
+    current_monthly_lifestyle_expenses: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
+    current_investable_corpus: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
+    monthly_contribution: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
+    annual_inflation_rate: Decimal = Field(ge=0, le=Decimal("0.20"), max_digits=5, decimal_places=4)
+    annual_return_rate: Decimal = Field(ge=Decimal("-0.50"), le=Decimal("0.50"), max_digits=5, decimal_places=4)
+    withdrawal_rate: Decimal = Field(ge=Decimal("0.01"), le=Decimal("0.10"), max_digits=5, decimal_places=4)
+
+    @model_validator(mode="after")
+    def validate_age_order(self):
+        if self.target_age <= self.current_age:
+            raise ValueError("target_age must be greater than current_age")
+        return self
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
+    freedom_scenario: FreedomScenarioRequest | None = None
+    user_selected_coverage_target: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
 
 class MessageResponse(BaseModel):
@@ -64,6 +98,104 @@ class ReviewResponse(BaseModel):
     status: str
     evidence: dict[str, Any]
     created_at: datetime
+
+
+class CreateFinancialFactRequest(BaseModel):
+    fact_type: str
+    value: Decimal = Field(ge=0, max_digits=20, decimal_places=4)
+    unit: str = Field(default="INR", min_length=1, max_length=12)
+    source_type: Literal["user_statement", "manual_record", "imported_record"] = "user_statement"
+    source_id: str | None = Field(default=None, max_length=120)
+    observed_at: datetime
+    confidence: Decimal | None = Field(default=None, ge=0, le=1, max_digits=5, decimal_places=4)
+
+    @model_validator(mode="after")
+    def validate_fact_type(self):
+        if self.fact_type not in ALLOWED_FACT_TYPES:
+            raise ValueError("Unsupported financial fact type")
+        return self
+
+
+class FinancialFactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    fact_id: UUID
+    fact_type: str
+    value: Decimal
+    unit: str
+    source_type: str
+    source_id: str | None
+    verification_status: str
+    confidence: Decimal | None
+    observed_at: datetime
+    verified_at: datetime | None
+    supersedes_fact_id: UUID | None
+
+
+class FactDecisionRequest(BaseModel):
+    decision: Literal["confirm", "reject"]
+
+
+@router.get("/financial-facts", response_model=list[FinancialFactResponse])
+def list_financial_facts(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    return db.query(FinancialFact).filter(
+        FinancialFact.user_id == current_user.user_id
+    ).order_by(FinancialFact.created_at.desc()).all()
+
+
+@router.post("/financial-facts", response_model=FinancialFactResponse, status_code=201)
+def create_financial_fact_candidate(
+    payload: CreateFinancialFactRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    fact = FinancialContextService(db, current_user.user_id).create_candidate(**payload.model_dump())
+    db.commit()
+    db.refresh(fact)
+    return fact
+
+
+@router.post("/financial-facts/{fact_id}/decision", response_model=FinancialFactResponse)
+def decide_financial_fact(
+    fact_id: UUID,
+    payload: FactDecisionRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        fact = FinancialContextService(db, current_user.user_id).decide(fact_id, payload.decision)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    db.refresh(fact)
+    return fact
+
+
+@router.get("/financial-context/{scope}")
+def get_financial_context(
+    scope: str,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        packet = FinancialContextService(db, current_user.user_id).assemble(scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "scope": scope,
+        "as_of": packet.as_of,
+        "facts": [{
+            "fact_id": fact.fact_id, "fact_type": fact.fact_type,
+            "value": str(fact.value), "unit": fact.unit,
+            "source_type": fact.source_type, "verification_status": fact.verification_status,
+            "observed_at": fact.observed_at,
+        } for fact in packet.facts.values()],
+        "missing": packet.missing,
+    }
 
 
 def owned_conversation(db: Session, conversation_id: UUID, user_id: UUID) -> Conversation:
@@ -133,7 +265,13 @@ def send_message(
         role="user", content=payload.content, structured_content={},
     )
     db.add(user_message)
-    answer = AgentOrchestrator(db, current_user.user_id).answer(payload.content)
+    freedom_inputs = (
+        FreedomProjectionInputs(**payload.freedom_scenario.model_dump())
+        if payload.freedom_scenario else None
+    )
+    answer = AgentOrchestrator(db, current_user.user_id).answer(
+        payload.content, freedom_inputs, payload.user_selected_coverage_target
+    )
     assistant_message = ConversationMessage(
         message_id=uuid4(), conversation_id=conversation.conversation_id,
         role="assistant", content=answer.narrative, structured_content={"blocks": answer.blocks},
