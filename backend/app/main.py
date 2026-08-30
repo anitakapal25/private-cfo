@@ -40,13 +40,21 @@ async def financial_output_error_handler(request, exc):
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
 app.include_router(agent_v1.router, prefix="/api/v1/agent", tags=["agent-v1"])
-app.include_router(advisor.router, prefix="/api/advisor", tags=["advisor"])
-app.include_router(investment_platform.router, prefix="/api/investment-platform", tags=["investment_platform"])
-app.include_router(account_aggregator.router, prefix="/api/account-aggregator", tags=["account_aggregator"])
-app.include_router(community.router, prefix="/api/community", tags=["community"])
-app.include_router(wellness_program.router, prefix="/api/wellness-program", tags=["wellness_program"])
-app.include_router(webhook.router, prefix="/api/webhook", tags=["webhook"])
-app.include_router(export.router, prefix="/api/export", tags=["export"])
+settings = get_settings()
+
+if settings.enable_advisor_access:
+    app.include_router(advisor.router, prefix="/api/advisor", tags=["advisor"])
+if settings.enable_financial_integrations:
+    app.include_router(investment_platform.router, prefix="/api/investment-platform", tags=["investment_platform"])
+    app.include_router(account_aggregator.router, prefix="/api/account-aggregator", tags=["account_aggregator"])
+if settings.enable_community_benchmarks:
+    app.include_router(community.router, prefix="/api/community", tags=["community"])
+if settings.enable_wellness_programs:
+    app.include_router(wellness_program.router, prefix="/api/wellness-program", tags=["wellness_program"])
+if settings.enable_external_webhooks:
+    app.include_router(webhook.router, prefix="/api/webhook", tags=["webhook"])
+if settings.enable_data_exports:
+    app.include_router(export.router, prefix="/api/export", tags=["export"])
 
 # Health endpoint
 @app.get("/health")

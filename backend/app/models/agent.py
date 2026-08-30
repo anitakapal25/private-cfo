@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Numeric, String, Text, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -62,17 +62,38 @@ class ToolCall(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
 
 
+class EvidenceSource(Base):
+    __tablename__ = "evidence_sources"
+    __table_args__ = (Index("ix_evidence_sources_user_id", "user_id"), {"schema": "financial"})
+
+    evidence_source_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False)
+    source_type = Column(String(30), nullable=False)
+    source_reference = Column(String(120))
+    observed_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+
 class FinancialFact(Base):
     __tablename__ = "financial_facts"
-    __table_args__ = {"schema": "financial"}
+    __table_args__ = (
+        Index(
+            "uq_financial_facts_verified_type",
+            "user_id", "fact_type", unique=True,
+            postgresql_where=text("verification_status = 'verified'"),
+        ),
+        Index("ix_financial_facts_user_id", "user_id"),
+        {"schema": "financial"},
+    )
 
     fact_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False)
     fact_type = Column(String(60), nullable=False)
     value = Column(Numeric(20, 4), nullable=False)
     unit = Column(String(12), nullable=False, default="INR")
     source_type = Column(String(30), nullable=False)
     source_id = Column(String(120))
+    evidence_source_id = Column(UUID(as_uuid=True), ForeignKey("financial.evidence_sources.evidence_source_id"))
     verification_status = Column(String(20), nullable=False, default="unverified")
     confidence = Column(Numeric(5, 4))
     sensitivity_classification = Column(String(20), nullable=False, default="confidential")
@@ -84,15 +105,19 @@ class FinancialFact(Base):
 
 class CalculationRecord(Base):
     __tablename__ = "calculation_records"
-    __table_args__ = {"schema": "financial"}
+    __table_args__ = (Index("ix_calculation_records_user_id", "user_id"), {"schema": "financial"})
 
     calculation_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False)
     calculation_type = Column(String(60), nullable=False)
     calculation_version = Column(String(30), nullable=False)
     inputs = Column(JSONB, nullable=False)
     assumptions = Column(JSONB, nullable=False)
     result = Column(JSONB, nullable=False)
+    input_provenance = Column(JSONB, nullable=False, default=list)
+    rule_versions = Column(JSONB, nullable=False, default=dict)
+    limitations = Column(JSONB, nullable=False, default=list)
+    as_of = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
 
 

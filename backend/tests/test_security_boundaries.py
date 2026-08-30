@@ -9,6 +9,7 @@ from fastapi.routing import APIRoute
 
 from app.auth.manager import get_current_active_user
 from app.core import crypto
+from app.core.config import Settings
 from app.main import app
 from app.routers.account_aggregator import AccountAggregatorConnectionResponse
 from app.routers.investment_platform import InvestmentPlatformConnectionResponse
@@ -23,6 +24,7 @@ from app.guardrails.authorization import bind_authenticated_user
 from app.guardrails.data_redaction import redact_sensitive
 from app.guardrails.financial_output import FinancialOutputError, execute_financial_tool
 from app.guardrails.regulatory_language import Decision, evaluate_financial_request
+from app.services.ecosystem_capabilities import get_ecosystem_capabilities
 
 
 def test_all_agent_routes_require_authenticated_user():
@@ -46,6 +48,72 @@ def test_all_v1_agent_routes_require_authenticated_user():
     for route in agent_routes:
         dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
         assert get_current_active_user in dependency_calls, route.path
+
+
+def test_create_conversation_post_route_precedes_static_frontend():
+    matching_routes = [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute)
+        and route.path == "/api/v1/agent/conversations"
+        and "POST" in route.methods
+    ]
+
+    assert len(matching_routes) == 1
+    assert app.routes.index(matching_routes[0]) < next(
+        index for index, route in enumerate(app.routes) if route.path == ""
+    )
+
+
+def test_phase_3_routes_are_not_mounted_by_default():
+    paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
+    blocked_prefixes = (
+        "/api/advisor",
+        "/api/investment-platform",
+        "/api/account-aggregator",
+        "/api/community",
+        "/api/wellness-program",
+        "/api/webhook",
+        "/api/export",
+    )
+    assert not any(path.startswith(blocked_prefixes) for path in paths)
+
+
+def test_financial_integrations_require_provider_and_approval():
+    with pytest.raises(ValueError, match="approved provider"):
+        Settings(
+            _env_file=None,
+            environment="test",
+            jwt_secret="test-secret",
+            enable_financial_integrations=True,
+        )
+
+
+def test_background_sync_cannot_run_without_financial_integrations():
+    with pytest.raises(ValueError, match="ENABLE_FINANCIAL_INTEGRATIONS"):
+        Settings(
+            _env_file=None,
+            environment="test",
+            jwt_secret="test-secret",
+            enable_background_sync=True,
+            enable_financial_integrations=False,
+        )
+
+
+def test_phase_3_capability_report_is_fail_closed_and_non_sensitive():
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        jwt_secret="test-secret",
+        financial_integration_provider="secret-provider-name",
+        financial_integration_approval_reference="internal-approval",
+    )
+
+    report = get_ecosystem_capabilities(settings)
+
+    assert all(item["status"] == "disabled" for item in report.values())
+    assert "secret-provider-name" not in str(report)
+    assert "internal-approval" not in str(report)
 
 
 def test_sensitive_fields_are_not_in_response_schemas():

@@ -40,6 +40,15 @@ p { margin:0; font-size: 0.9375rem; }
 a { color: var(--color-primary-action); text-decoration:none; }
 a:hover, a:focus { text-decoration: underline; }
 button { cursor: pointer; }
+.fact-form { display:grid; gap:.75rem; margin-top:1rem; }
+.fact-form label { display:grid; gap:.25rem; }
+.fact-form input, .fact-form select { padding:.65rem; border:1px solid var(--color-border); border-radius:.5rem; background:#fff; }
+.fact-list { list-style:none; display:grid; gap:.5rem; margin-top:1rem; }
+.fact-list li { display:grid; grid-template-columns:1fr auto; gap:.1rem 1rem; padding:.65rem; border:1px solid var(--color-border); border-radius:.5rem; }
+.fact-list span { text-transform:capitalize; }
+.fact-list small { grid-column:1 / -1; color:var(--color-text-secondary); }
+.fact-actions { grid-column:1 / -1; display:flex; gap:.5rem; }
+.fact-actions button { padding:.35rem .65rem; border:1px solid var(--color-primary-action); border-radius:.4rem; background:#fff; color:var(--color-primary-action); }
 
 /* Layout – Sidebar + Header + Main content */
 .layout {
@@ -364,5 +373,17 @@ button:focus-visible, input:focus-visible { outline:2px solid var(--color-primar
 .agent-card { background:white; border:1px solid var(--color-border); border-radius:1rem; padding:2rem; display:grid; gap:1rem; }
 .agent-card form { display:grid; gap:.7rem; }
 .agent-card input { width:100%; border:1px solid var(--color-border); border-radius:.5rem; padding:.75rem; }
+.scenario-toggle { align-self:flex-start; }
+.scenario-card { background:white; border:1px solid var(--color-border); border-radius:1rem; padding:1rem; display:grid; gap:.75rem; }
+.scenario-card h2 { font-size:1.05rem; }
+.scenario-card > p { color:var(--color-text-secondary); font-size:.82rem; }
+.scenario-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.75rem; }
+.scenario-grid label { display:grid; gap:.25rem; font-size:.78rem; font-weight:600; }
+.scenario-grid input { width:100%; border:1px solid var(--color-border); border-radius:.5rem; padding:.6rem; font:inherit; }
+.scenario-confirm { display:flex; align-items:flex-start; gap:.5rem; font-size:.82rem; }
+.quick-prompts { display:flex; flex-wrap:wrap; gap:.5rem; }
+.quick-prompts button { border:1px solid var(--color-border); background:white; color:var(--color-primary-action); border-radius:999px; padding:.45rem .7rem; }
+.scenario-card > label { display:grid; gap:.25rem; font-size:.8rem; font-weight:600; }
+.scenario-card > label input { border:1px solid var(--color-border); border-radius:.5rem; padding:.6rem; }
 .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
-@media (max-width:640px) { .agent-shell { padding:1rem .75rem; } .message { width:92%; } .agent-header h1 { font-size:1.35rem; } }
+@media (max-width:640px) { .agent-shell { padding:1rem .75rem; } .message { width:92%; } .agent-header h1 { font-size:1.35rem; } .scenario-grid { grid-template-columns:1fr; } }

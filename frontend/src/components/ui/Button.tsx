@@ -1,11 +1,9 @@
 import React from 'react';
 
-interface ButtonProps {
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary';
   size?: 'sm' | 'md' | 'lg';
   children: React.ReactNode;
-  onClick?: () => void;
-  className?: string;
 }
 
 const Button: React.FC<ButtonProps> = ({
@@ -14,6 +12,8 @@ const Button: React.FC<ButtonProps> = ({
   children,
   onClick,
   className = '',
+  type = 'submit',
+  ...buttonProps
 }) => {
   const baseClasses = 'btn';
   const variantClasses =
@@ -33,6 +33,8 @@ const Button: React.FC<ButtonProps> = ({
     <button
       className={`${baseClasses} ${variantClasses} ${sizeClasses} ${className}`}
       onClick={onClick}
+      type={type}
+      {...buttonProps}
     >
       {children}
     </button>

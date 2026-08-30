@@ -1,8 +1,9 @@
 # Financial Freedom Copilot - AI and Tool Architecture
 
-**Status:** Target tool architecture; current agent is a deterministic keyword router  
+**Status:** Target tool architecture; current Phase 1 agent is a typed deterministic orchestrator
 **Last reviewed:** 2026-08-30  
-**Current boundary:** Private agent routes derive `user_id` from the authenticated user. Tool-level policy objects, persistent audit logs, public research tools and LLM evaluation remain planned.
+**Current boundary:** Private agent routes derive `user_id` from the authenticated user. Intent-scoped tool policy and persistent agent/tool/calculation audit records are implemented. Public research tools, external-LLM evaluation and broader mutation audit coverage remain planned.
+Phase 2 agent tools now include intent-scoped debt metrics, flat 12-month cash-flow forecasting, goal progress, and explicit user-target insurance coverage comparison. Advanced simulations, current tax rules, product guidance, and document intelligence remain gated.
 
 ## Overview
 This document describes the AI agent and tool architecture for Financial Freedom Copilot (ArthaOS). The architecture follows the principle of having a primary financial agent that interacts with the system through well-defined, secure tools, ensuring that the LLM never has direct access to data or computational resources.
@@ -1443,3 +1444,16 @@ The AI and tool architecture for Financial Freedom Copilot creates a secure, pri
 6. **Users retain control** over their data through verification and consent mechanisms
 
 This architecture supports the core product principles of privacy-first design, deterministic financial calculations, evidence-based guidance, and least privilege access while enabling a rich, helpful conversational experience for users seeking financial freedom.
+# Verified memory API
+
+Milestones 2 and 3 expose authenticated, server-user-bound memory operations:
+
+- `GET /api/v1/agent/financial-facts`
+- `POST /api/v1/agent/financial-facts` creates an unverified or conflict candidate
+- `POST /api/v1/agent/financial-facts/{fact_id}/decision` confirms or rejects it
+- `GET /api/v1/agent/financial-context/{scope}` returns only verified facts required by that scope
+
+Conversation summaries and unverified candidates are never authoritative inputs. A
+confirmed replacement records the prior fact through `supersedes_fact_id`; rejected
+values remain excluded. Calculation evidence includes fact IDs and provenance without
+placing unrestricted records or raw documents in model context.

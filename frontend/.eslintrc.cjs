@@ -1,8 +1,5 @@
 module.exports = {
-  env: {
-    browser: true,
-    es2021: true,
-  },
+  env: { browser: true, es2021: true },
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
@@ -11,20 +8,11 @@ module.exports = {
   ],
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    ecmaFeatures: {
-      jsx: true,
-    },
+    ecmaFeatures: { jsx: true },
     ecmaVersion: 12,
     sourceType: 'module',
   },
-  settings: {
-    react: {
-      version: '18.2',
-    },
-  },
+  settings: { react: { version: '18.2' } },
   plugins: ['react', '@typescript-eslint', 'react-hooks'],
-  rules: {
-    // Add any custom rules here
-    'react/react-in-jsx-scope': 'off',
-  },
+  rules: { 'react/react-in-jsx-scope': 'off' },
 };
