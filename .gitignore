@@ -1,0 +1,34 @@
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# JavaScript / TypeScript
+node_modules/
+frontend/dist/
+frontend/assets/
+*.tsbuildinfo
+
+# Runtime data and logs
+*.log
+uploads/
+
+# Generated reports
+coverage/
+htmlcov/
+
+# Editor and OS metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
