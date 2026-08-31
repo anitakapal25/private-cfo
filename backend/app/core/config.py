@@ -27,7 +27,6 @@ class Settings(BaseSettings):
     jwt_issuer: str = "arthaos"
     jwt_audience: str = "arthaos-api"
     encryption_key: str | None = None
-    upload_dir: Path = PROJECT_ROOT / "uploads"
     enable_external_webhooks: bool = False
     enable_financial_integrations: bool = False
     enable_background_sync: bool = False
@@ -36,11 +35,15 @@ class Settings(BaseSettings):
     enable_community_benchmarks: bool = False
     enable_wellness_programs: bool = False
     enable_data_exports: bool = False
+    enable_proactive_reviews: bool = False
+    proactive_review_interval_seconds: int = 86400
     financial_integration_provider: str | None = None
     financial_integration_approval_reference: str | None = None
 
     @model_validator(mode="after")
     def validate_secrets(self):
+        if self.proactive_review_interval_seconds < 3600:
+            raise ValueError("Proactive review interval must be at least one hour")
         if self.enable_background_sync and not self.enable_financial_integrations:
             raise ValueError(
                 "ENABLE_BACKGROUND_SYNC requires ENABLE_FINANCIAL_INTEGRATIONS"

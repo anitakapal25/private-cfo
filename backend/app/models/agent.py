@@ -24,13 +24,17 @@ class Conversation(Base):
 
 class ConversationMessage(Base):
     __tablename__ = "agent_messages"
-    __table_args__ = {"schema": "financial"}
+    __table_args__ = (
+        Index("uq_agent_message_client_request", "conversation_id", "client_request_id", unique=True),
+        {"schema": "financial"},
+    )
 
     message_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("financial.agent_conversations.conversation_id"), nullable=False, index=True)
     role = Column(String(12), nullable=False)
     content = Column(Text, nullable=False)
     structured_content = Column(JSONB, nullable=False, default=dict)
+    client_request_id = Column(UUID(as_uuid=True))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
     conversation = relationship("Conversation", back_populates="messages")
 
@@ -121,6 +125,35 @@ class CalculationRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
 
 
+class ActionPlan(Base):
+    __tablename__ = "action_plans"
+    __table_args__ = {"schema": "financial"}
+
+    plan_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False, index=True)
+    title = Column(String(160), nullable=False)
+    status = Column(String(20), nullable=False, default="active")
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    actions = relationship("PlannedAction", back_populates="plan", cascade="all, delete-orphan")
+
+
+class PlannedAction(Base):
+    __tablename__ = "planned_actions"
+    __table_args__ = {"schema": "financial"}
+
+    action_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("financial.action_plans.plan_id"), nullable=False, index=True)
+    action_type = Column(String(50), nullable=False)
+    monthly_amount = Column(Numeric(20, 4), nullable=False)
+    currency = Column(String(12), nullable=False, default="INR")
+    rank = Column(Numeric(8, 4), nullable=False)
+    rationale = Column(Text, nullable=False)
+    impact = Column(JSONB, nullable=False)
+    status = Column(String(20), nullable=False, default="planned")
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    plan = relationship("ActionPlan", back_populates="actions")
+
+
 class ProactiveReview(Base):
     __tablename__ = "proactive_reviews"
     __table_args__ = {"schema": "financial"}
@@ -130,8 +163,11 @@ class ProactiveReview(Base):
     finding_type = Column(String(60), nullable=False)
     status = Column(String(20), nullable=False, default="open")
     evidence = Column(JSONB, nullable=False)
+    rule_version = Column(String(30), nullable=False, default="proactive-review-v1")
+    dedup_key = Column(String(64), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
     acknowledged_at = Column(DateTime(timezone=True))
+    dismissed_at = Column(DateTime(timezone=True))
 
 
 class Confirmation(Base):

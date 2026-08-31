@@ -11,6 +11,8 @@ from app.auth.manager import get_current_active_user
 from app.core import crypto
 from app.core.config import Settings
 from app.main import app
+from app.models.agent import ConversationMessage
+from app.routers.agent_v1 import CreateFinancialFactRequest
 from app.routers.account_aggregator import AccountAggregatorConnectionResponse
 from app.routers.investment_platform import InvestmentPlatformConnectionResponse
 from app.routers.webhook import WebhookSubscriptionResponse
@@ -27,16 +29,10 @@ from app.guardrails.regulatory_language import Decision, evaluate_financial_requ
 from app.services.ecosystem_capabilities import get_ecosystem_capabilities
 
 
-def test_all_agent_routes_require_authenticated_user():
-    agent_routes = [
-        route
-        for route in app.routes
-        if isinstance(route, APIRoute) and route.path.startswith("/api/agent/")
-    ]
-    assert agent_routes
-    for route in agent_routes:
-        dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
-        assert get_current_active_user in dependency_calls, route.path
+def test_legacy_agent_and_server_document_routes_are_not_mounted():
+    paths = {route.path for route in app.routes if isinstance(route, APIRoute)}
+    assert not any(path.startswith("/api/agent") for path in paths)
+    assert not any("/documents" in path for path in paths)
 
 
 def test_all_v1_agent_routes_require_authenticated_user():
@@ -98,6 +94,13 @@ def test_background_sync_cannot_run_without_financial_integrations():
             enable_background_sync=True,
             enable_financial_integrations=False,
         )
+
+
+def test_proactive_review_schedule_is_disabled_by_default_and_bounded():
+    settings = Settings(_env_file=None, environment="test", jwt_secret="test-secret")
+    assert settings.enable_proactive_reviews is False
+    with pytest.raises(ValueError, match="at least one hour"):
+        Settings(_env_file=None, environment="test", jwt_secret="test-secret", proactive_review_interval_seconds=60)
 
 
 def test_phase_3_capability_report_is_fail_closed_and_non_sensitive():
@@ -176,6 +179,45 @@ def test_redaction_removes_sensitive_fields_and_identifiers():
     assert redacted["password"] == "[REDACTED]"
     assert "ABCDE1234F" not in redacted["note"]
     assert "1234 5678 9012" not in redacted["note"]
+
+
+def test_redaction_removes_raw_prompts_document_text_and_transaction_descriptions():
+    redacted = redact_sensitive({
+        "raw_prompt": "private financial prompt",
+        "extracted_text": "raw statement body",
+        "transaction_description": "confidential merchant detail",
+    })
+    assert set(redacted.values()) == {"[REDACTED]"}
+
+
+def test_agent_message_client_request_id_has_unique_conversation_scope():
+    index = next(
+        item for item in ConversationMessage.__table__.indexes
+        if item.name == "uq_agent_message_client_request"
+    )
+    assert index.unique is True
+    assert [column.name for column in index.columns] == ["conversation_id", "client_request_id"]
+
+
+def test_local_document_fact_requires_only_an_opaque_evidence_reference():
+    with pytest.raises(ValueError, match="opaque evidence reference"):
+        CreateFinancialFactRequest(
+            fact_type="monthly_income", value="1000.00", unit="INR",
+            source_type="local_document_confirmation", observed_at="2026-08-30T00:00:00Z",
+        )
+    with pytest.raises(ValueError, match="valid opaque evidence identifier"):
+        CreateFinancialFactRequest(
+            fact_type="monthly_income", value="1000.00", unit="INR",
+            source_type="local_document_confirmation", source_id="/home/user/salary.pdf",
+            observed_at="2026-08-30T00:00:00Z",
+        )
+    evidence_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    request = CreateFinancialFactRequest(
+        fact_type="monthly_income", value="1000.00", unit="INR",
+        source_type="local_document_confirmation", source_id=evidence_id,
+        observed_at="2026-08-30T00:00:00Z", confidence="0.9000",
+    )
+    assert request.source_id == evidence_id
 
 
 def test_expired_assumption_fails_closed():
