@@ -5,11 +5,19 @@
 
 This document describes required controls, not completed controls. Current safeguards
 include authenticated agent routes, validated environment settings, fail-closed Fernet
-encryption for sensitive operations, encrypted local document files and external
-webhooks disabled by default. Major gaps include managed key rotation, MFA, token
-revocation, rate limiting, malware scanning, immutable audit logs, retention/deletion
-automation, dependency scanning, CI and production infrastructure evidence. The system
-must not process real financial documents until those release blockers are closed.
+encryption for sensitive operations, desktop-local document scanning/extraction and
+external webhooks disabled by default. Major gaps include managed key rotation for
+server secrets, MFA, token revocation, rate limiting, immutable audit logs,
+retention/deletion automation and production infrastructure evidence. The system must
+not process real financial documents in production until package signing, scanner
+maintenance and independent operational review gates close.
+
+The approved document architecture keeps original files on the user's device. Native
+code holds paths behind expiring one-time tokens, runs local malware scanning and
+network-isolated extraction, deletes temporary plaintext, and exposes only normalized
+candidates to the webview. The backend receives only explicitly confirmed structured
+facts and opaque UUID evidence references. Legacy server-upload endpoints remain
+disabled and are not part of the product workflow.
 
 ## Overview
 This document outlines the security architecture for Financial Freedom Copilot (ArthaOS), detailing how the system protects sensitive financial information, ensures privacy, prevents unauthorized access, and maintains compliance with relevant regulations. Security is designed as a foundational aspect rather than an afterthought, following the principle of "Privacy First" and defense-in-depth.

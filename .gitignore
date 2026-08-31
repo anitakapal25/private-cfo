@@ -16,6 +16,9 @@ venv/
 node_modules/
 frontend/dist/
 frontend/assets/
+frontend/playwright-report/
+frontend/test-results/
+frontend/src-tauri/target/
 *.tsbuildinfo
 
 # Runtime data and logs

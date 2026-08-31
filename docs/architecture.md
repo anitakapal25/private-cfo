@@ -86,13 +86,13 @@ Financial Freedom Copilot (ArthaOS) is a private financial-freedom operating sys
 4. Agent formulates response with explanations, visualizations, and action items
 5. Response delivered to user through interface
 
-### Document Processing Flow
-1. User uploads financial document
-2. Document stored in encrypted quarantine area
-3. Document Processing Service extracts data in sandboxed environment
-4. Extracted data validated and verified
-5. Validated data merged into user financial model (with user confirmation)
-6. Original document securely stored, extractable data indexed
+### Local Desktop Document Processing Flow
+1. User selects a PDF through the native desktop picker.
+2. Native code retains the canonical path in memory behind an expiring one-time token.
+3. The PDF is scanned and extracted locally in a network-isolated, resource-limited sandbox.
+4. Deterministic parsing returns normalized candidates, never raw text or a filesystem path.
+5. User reviews candidates and conflicts in the desktop UI.
+6. Only an explicitly confirmed structured fact and opaque evidence UUID reach the backend; the original stays on the user's computer.
 
 ## Security Boundaries
 
@@ -215,10 +215,10 @@ See [technology-stack.md](./technology-stack.md) for detailed recommendations.
 
 ### Phase 1: Agent MVP (Implemented — release-gated)
 - Authenticated v1 conversations persist messages, agent runs, deterministic calculation records, tool-call evidence, short-lived payload-bound confirmations and sanitized audit events.
-- The React entry point is a chat-first host with email/password sign-in, structured scenario confirmation, and missing-data, refusal and calculation-evidence states. Real-browser validation remains pending.
+- The React entry point is a chat-first host with email/password sign-in, structured scenario confirmation, missing-data, refusal, calculation-evidence, cancellation, idempotent retry, partial-failure and expired-session states. Mocked API contract journeys run in a real browser; PostgreSQL-backed browser validation remains pending.
 - Net-worth, recurring cash-flow and user-confirmed financial-freedom scenarios use versioned Decimal-based deterministic orchestration. The projection never invents return, inflation or withdrawal assumptions.
 - Intent routing is deterministic and tools are restricted by an explicit intent-scoped allow-list. A provider-neutral model boundary exists but remains disabled until privacy review and the model-release evaluation gate pass.
-- Existing financial-freedom targets remain available as stored goals; action-plan mutation and proactive review generation belong to later milestones.
+- Financial-freedom targets, explicitly confirmed action plans and deterministic proactive review findings are persisted with user ownership and audit evidence.
 - Privacy-first design with deterministic calculation engine
 - Audit coverage outside the v1 agent flow remains planned.
 - Backend tests and the frontend type-check, lint and production build pass locally. PostgreSQL deployment verification and operational controls remain release gates.
@@ -226,12 +226,16 @@ See [technology-stack.md](./technology-stack.md) for detailed recommendations.
 ### Phase 2: Enhanced Features (Current Focus)
 - **Milestone 2 verified financial memory — Implemented:** Authenticated users create candidate facts with provenance, observation time, confidence and sensitivity classification. Candidates never enter calculation context before explicit confirmation; conflicting confirmed values are superseded only by a separate confirm decision. Purpose-scoped context packets return only required verified fields and missing-field labels.
 - **Milestone 3 deterministic financial foundation — Implemented:** Versioned Decimal services cover net worth, monthly surplus and savings rate, emergency-reserve coverage, debt metrics, goal progress/projection and financial-freedom projections. Calculation records persist normalized inputs, fact provenance, assumptions, rule versions, as-of time, results and limitations. Current tax calculations remain fail-closed because their assumption catalogue is expired; this is a safety outcome, not an incomplete arithmetic path.
+- **Milestone 4 personalized planning agent — Implemented:** Users compare allowlisted, product-neutral cash-flow actions. Deterministic code calculates annualized impact and ranks actions from explicit feasibility and user-priority inputs plus versioned risk/liquidity policy. A payload-bound, expiring, single-use confirmation is required before an action plan and its audited actions are stored. Named-product actions are rejected.
+- **Milestone 5 local document intelligence — Implemented for the Linux MVP:** Tauri native commands keep paths and raw text outside React and the backend. Local ClamAV plus a bubblewrap-isolated, non-networked, resource-limited PDF extractor produce conservative candidates for direct monthly-net-pay and insurance-coverage labels only. One-time selections are explicitly discardable and expire automatically. Explicit confirmation sends a structured fact with an opaque evidence UUID. Server document endpoints and the mocked legacy agent router are not mounted. Native, browser, installed-tool and Debian packaging checks pass. Package signing and independent security approval remain production deployment gates; OCR and other operating systems are outside the Linux MVP scope.
+- **Milestone 6 proactive financial reviews — Implemented:** Versioned deterministic rules detect stale verified facts, negative recurring cash flow, declining emergency reserves, declining goal balances and overdue plan actions. Findings include source identifiers and as-of evidence, are deduplicated within a review window, and can be acknowledged, dismissed or linked to an already confirmed user-owned plan. Scheduling is disabled by default and findings never mutate facts, goals or plans.
+- **Milestone 7 chat-first release validation — Partial:** Agent messages accept a conversation-scoped client request ID backed by a database uniqueness constraint, enabling safe retry after cancellation or partial failure. The UI exposes cancel, retry, expired-session and confirmed-plan success states. Playwright contract journeys cover evidence rendering, request-ID reuse, authorization expiry, partial failure and explicit plan confirmation and run in pull-request CI. Streaming transport, real PostgreSQL-backed browser journeys, automated accessibility checks, migration rehearsal and production deployment evidence remain pending.
 - **Scenario planning — Partial**: Confirmed financial-freedom scenarios are deterministic and versioned. The legacy Monte Carlo implementation remains outside the v1 agent because it uses floating-point calculations and unreviewed embedded assumptions.
 - **Insurance planning — Partial**: The agent compares stored coverage with an explicit user-selected target. It does not select a coverage level or recommend a product.
 - **Tax optimization — Blocked**: The reviewed tax catalogue is expired; tax requests fail closed until current authoritative rules complete the calculation-release workflow.
 - **Investment analysis — Blocked at advice boundary**: Stored assets contribute to net worth, but personalized allocation, rebalancing and product guidance require separate regulatory review.
-- **Document processing — Blocked**: Malware scanning and sandboxed extraction are absent, so the v1 agent does not invoke the simulated document tools.
-- **Goal-based planning — Partial**: Active goal progress is calculated deterministically. Priority funding and confirmed action-plan mutation remain pending.
+- **Document processing — Linux MVP implemented, production gated**: The local scanner and sandboxed extraction probe pass, the Debian package declares required runtime tools, and original documents are never uploaded, copied or stored. Signing credentials and independent operational security approval are required before production distribution.
+- **Goal-based planning — Partial**: Active goal progress, confirmed product-neutral action plans and proactive drift signals are implemented. Multi-goal priority funding remains pending.
 - **Cash-flow forecasting — Implemented**: A versioned 12-month flat recurring scenario exposes the no-growth and one-time-item exclusions.
 - **Debt analysis — Partial**: Outstanding debt, monthly EMI and debt-to-income ratio are implemented. Amortization and prepayment comparisons remain pending.
 
