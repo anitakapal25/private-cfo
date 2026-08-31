@@ -1,0 +1,1 @@
+{"main-window":{"identifier":"main-window","description":"Default-deny desktop window with only core webview permissions.","local":true,"windows":["main"],"permissions":["core:default"]}}

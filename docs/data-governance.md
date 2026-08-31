@@ -27,19 +27,20 @@ Before production use, maintain a machine-readable record for every data element
 
 | Class | Examples | Minimum handling |
 |---|---|---|
-| Restricted | Credentials, tokens, PAN/Aadhaar fragments, uploaded financial documents | Field/file encryption, least privilege, no application-log content, explicit retention |
+| Restricted | Credentials, tokens, PAN/Aadhaar fragments, user financial documents | Original documents remain on the user device; least privilege, no application-log/model content, explicit retention for confirmed structured facts |
 | Confidential | Income, expenses, assets, liabilities, goals, extracted fields | Authenticated user-bound access, encryption, access audit |
 | Internal | Operational metadata and non-sensitive configuration | Workforce access controls and retention |
 | Public | Published educational material | Integrity and source/version controls |
 
 ## Current controls and blockers
 
-- Uploaded files and integration credentials use fail-closed application encryption.
-- Upload storage location is configuration-driven and local storage is development-only.
+- The approved desktop flow does not upload, copy or retain original financial documents.
+- Local paths and extracted text remain in native memory; temporary plaintext is owner-only and deleted after processing.
+- Only explicitly confirmed structured facts and opaque UUID evidence references are transmitted.
 - External webhooks and financial integration simulation are disabled by default.
 - `.gitignore` excludes environment files and uploads from future Git tracking.
 - Existing sample uploads must be treated as test fixtures until their provenance is confirmed.
-- Managed KMS, rotation, malware scanning, processor inventory, rights automation and deletion verification are release blockers.
+- Managed KMS and rotation remain required for server-held credentials and sensitive structured data, but not for original documents that the service never stores. Signed desktop delivery, local scanner updates, processor inventory, rights automation and structured-fact deletion verification are release blockers.
 
 ## Retention policy process
 

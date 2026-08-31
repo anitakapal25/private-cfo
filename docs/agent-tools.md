@@ -2,8 +2,8 @@
 
 **Status:** Target tool architecture; current Phase 1 agent is a typed deterministic orchestrator
 **Last reviewed:** 2026-08-30  
-**Current boundary:** Private agent routes derive `user_id` from the authenticated user. Intent-scoped tool policy and persistent agent/tool/calculation audit records are implemented. Public research tools, external-LLM evaluation and broader mutation audit coverage remain planned.
-Phase 2 agent tools now include intent-scoped debt metrics, flat 12-month cash-flow forecasting, goal progress, and explicit user-target insurance coverage comparison. Advanced simulations, current tax rules, product guidance, and document intelligence remain gated.
+**Current boundary:** Private agent routes derive `user_id` from the authenticated user. Intent-scoped tool policy and persistent agent/tool/calculation audit records are implemented. Message requests support conversation-scoped database idempotency for safe UI retry. Public research tools, external-LLM evaluation and broader mutation audit coverage remain planned.
+Phase 2 agent tools now include intent-scoped debt metrics, flat 12-month cash-flow forecasting, goal progress, explicit user-target insurance coverage comparison, confirmed product-neutral action plans, and deterministic proactive reviews. Document review is a desktop-local preprocessing boundary, not an agent upload tool: native ClamAV and sandboxed extraction produce conservative candidates, and only a user-confirmed structured fact with an opaque evidence UUID is submitted. Original documents, paths and extracted text are unavailable to the agent and backend.
 
 ## Overview
 This document describes the AI agent and tool architecture for Financial Freedom Copilot (ArthaOS). The architecture follows the principle of having a primary financial agent that interacts with the system through well-defined, secure tools, ensuring that the LLM never has direct access to data or computational resources.
@@ -681,9 +681,11 @@ These tools interface with the deterministic calculation engine. They never perf
   - Validates financial reasonableness (e.g., monthly contribution doesn't exceed income)
   - Returns suggested improvements if applicable
 
-### 5. Document Processing Tools
+### 5. Legacy Server Document Processing Tools (disabled)
 
-These tools handle the secure processing of uploaded financial documents.
+The contracts in this section describe the earlier server-upload design. They are not
+available to the agent or called by the frontend. The approved desktop workflow keeps
+the original on the user's device and submits a structured fact only after confirmation.
 
 #### upload_document(user_id, file_metadata, encrypted_file_content)
 - **Purpose**: Securely upload a financial document for processing
@@ -1302,7 +1304,7 @@ Key points:
 - Tools implement strict allowlists for sources and data types
 - Agent combines public and private information only in final response
 
-### Document Processing Flow
+### Legacy Server Document Processing Flow (not approved for deployment)
 ```
 Upload → 
   [Quarantine Storage (encrypted)] → 
@@ -1322,6 +1324,9 @@ Key points:
 - Only standardized, validated extracted data enters main system
 - User verification required before data used in financial model
 - Original documents securely stored but not searchable/content accessible through main tools
+
+For the implemented local-only flow and its release blockers, see
+[`workflows/document-ingestion.md`](workflows/document-ingestion.md).
 
 ## Implementation Considerations
 
@@ -1457,3 +1462,8 @@ Conversation summaries and unverified candidates are never authoritative inputs.
 confirmed replacement records the prior fact through `supersedes_fact_id`; rejected
 values remain excluded. Calculation evidence includes fact IDs and provenance without
 placing unrestricted records or raw documents in model context.
+
+Planning actions use `POST /api/v1/agent/planning/candidates` for deterministic impact
+comparison and `POST /api/v1/agent/planning/plans` for confirmed persistence. Plan
+creation consumes a matching `create_action_plan` confirmation and rejects replay,
+expiry, payload changes and non-allowlisted action types.

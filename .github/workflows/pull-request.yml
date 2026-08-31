@@ -56,6 +56,27 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:e2e
+        working-directory: frontend
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install Tauri Linux build libraries
+        run: sudo apt-get update && sudo apt-get install --yes bubblewrap clamav libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf poppler-utils
+      - run: cargo fmt --check
+        working-directory: frontend/src-tauri
+      - run: cargo test
+        working-directory: frontend/src-tauri
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run tauri build -- --bundles deb
+        working-directory: frontend
 
   repository-guardrails:
     runs-on: ubuntu-latest

@@ -7,6 +7,14 @@
 ## Overview
 This document defines the database schema for Financial Freedom Copilot (ArthaOS), translating the domain model into a relational database structure optimized for financial data storage, retrieval, and security. The design prioritizes data integrity, query performance, and compliance with financial data protection requirements.
 
+> **Current local-document boundary:** the desktop application does not persist an
+> original document, local path or extracted text in this database. Selection tokens
+> and unconfirmed candidates are ephemeral device state. After explicit confirmation,
+> the backend stores a `FinancialFact` with source type
+> `local_document_confirmation` and an opaque UUID evidence reference. The document
+> tables below describe legacy/target server-upload support; that path is disabled and
+> is not called by the frontend.
+
 ## Database Choice: PostgreSQL 15+
 
 ### Rationale

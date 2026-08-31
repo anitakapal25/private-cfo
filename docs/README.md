@@ -23,13 +23,16 @@ Status terms:
 
 | Capability | Status | Evidence / limitation |
 |---|---|---|
-| Chat-first agent UI | Partial | Email/password sign-in, typed conversation client, confirmed scenario form and evidence rendering build successfully; browser tests remain pending |
+| Chat-first agent UI | Partial | Email/password sign-in, evidence rendering, explicit confirmation, cancellation, idempotent retry, partial-failure and expired-session states pass mocked Playwright browser journeys; streaming and PostgreSQL-backed end-to-end journeys remain pending |
 | FastAPI API | Partial | Routes exist; no production deployment definition |
 | Authentication | Partial | JWT verification and user-bound agent routes exist; rotation, revocation, MFA and rate limits are pending |
 | Deterministic financial foundation | Implemented | Versioned Decimal net-worth, cash-flow/savings-rate, emergency-fund, debt, goal and financial-freedom calculations have golden, boundary and determinism tests; current tax calculations remain separately blocked by stale rules |
 | Verified financial memory | Implemented | Purpose-scoped context uses confirmed facts only; candidates preserve evidence metadata, conflicts require an explicit decision, and supersession is audited |
-| Enhanced planning tools | Partial | Agent v1 provides versioned debt metrics, flat cash-flow forecasts, goal progress and user-selected insurance-gap comparisons; advanced simulations and action plans remain pending |
-| Document upload | Partial | Size, extension, signature checks and encrypted local storage exist; malware scanning and real extraction are pending |
+| Personalized planning actions | Implemented | Product-neutral actions use deterministic impact/ranking; payload-bound single-use confirmation is required before plan persistence |
+| Enhanced planning tools | Partial | Agent v1 provides versioned debt metrics, flat cash-flow forecasts, goal progress, user-selected insurance-gap comparisons and confirmed action plans; advanced simulations remain pending |
+| Local-only document intelligence | Implemented for Linux MVP; production release gated | Tauri keeps paths and extracted text native, runs ClamAV plus network-isolated bubblewrap/pdftotext, discards one-time selections explicitly or on expiry, and submits only confirmed structured facts with opaque UUID evidence. Server document routes and legacy agent routes are not mounted. Native, browser, installed-tool and Debian-package checks pass; signing and independent security approval remain deployment gates |
+| Proactive financial reviews | Implemented | Versioned deterministic rules identify stale facts, negative recurring cash flow, reserve/goal declines and overdue actions; findings are deduplicated, audited and user-controlled, while background scheduling is disabled by default |
+| Milestone 7 release validation | Partial | Five browser contract journeys cover the no-upload boundary, cancel/retry, evidence, authorization expiry, partial failure and confirmed plans; CI runs them after build. Real-backend browser journeys, streaming, accessibility automation, migration rehearsal and deployment evidence remain release gates |
 | Credential encryption | Partial | Fail-closed Fernet encryption exists; managed KMS and key rotation are pending |
 | Account Aggregator | Blocked | Data model is not an RBI-AA integration and must not be represented as one |
 | External webhooks | Blocked by default | Requires explicit configuration; production-grade egress control remains pending |
@@ -66,8 +69,10 @@ Operational workflows:
 ## Required review gates
 
 No real financial documents or credentials may be used until authentication,
-authorization, encryption-key management, document scanning, retention and deletion
-controls pass security review. Personalized investment recommendations and production
+authorization, signed desktop distribution, local scanning, temporary-data cleanup,
+structured-fact retention/deletion and desktop security controls pass review. Managed
+document-storage keys are not required for the approved local-only flow because original
+documents are not stored by Private CFO. Personalized investment recommendations and production
 Account Aggregator integration require specialist Indian legal/regulatory review.
 
 ## Enforceable guardrails
