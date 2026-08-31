@@ -9,13 +9,18 @@ SENSITIVE_KEYS = {
     "authorization",
     "content",
     "credentials",
+    "document_text",
     "encrypted_credentials",
+    "extracted_text",
     "file_content",
     "jwt",
     "pan",
     "password",
+    "prompt",
+    "raw_prompt",
     "secret",
     "token",
+    "transaction_description",
 }
 
 TOKEN_PATTERN = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b")
@@ -42,4 +47,3 @@ def redact_sensitive(value: Any) -> Any:
     if isinstance(value, str):
         return redact_text(value)
     return value
-

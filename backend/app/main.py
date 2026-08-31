@@ -2,9 +2,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from app.routers import agent, agent_v1, advisor, investment_platform, account_aggregator, community, wellness_program, webhook, export
+from app.routers import agent_v1, advisor, investment_platform, account_aggregator, community, wellness_program, webhook, export
 from app.auth.router import router as auth_router
-from app.core.background_tasks import start_background_sync
+from app.core.background_tasks import start_background_sync, start_proactive_reviews
 from app.core.config import get_settings
 from app.guardrails.financial_output import FinancialOutputError
 import os
@@ -12,12 +12,16 @@ import os
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start one sync worker per application process and stop it cleanly."""
-    worker = start_background_sync() if get_settings().enable_background_sync else None
+    settings = get_settings()
+    workers = []
+    if settings.enable_background_sync:
+        workers.append(start_background_sync())
+    if settings.enable_proactive_reviews:
+        workers.append(start_proactive_reviews(settings.proactive_review_interval_seconds))
     try:
         yield
     finally:
-        if worker:
-            sync_thread, stop_event = worker
+        for sync_thread, stop_event in workers:
             stop_event.set()
             sync_thread.join(timeout=5)
 
@@ -38,7 +42,6 @@ async def financial_output_error_handler(request, exc):
 
 # Include routers with /api prefix
 app.include_router(auth_router, prefix="/api/auth")
-app.include_router(agent.router, prefix="/api/agent", tags=["agent"])
 app.include_router(agent_v1.router, prefix="/api/v1/agent", tags=["agent-v1"])
 settings = get_settings()
 

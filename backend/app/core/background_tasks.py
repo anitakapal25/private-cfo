@@ -3,6 +3,8 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from app.core.config import SessionLocal
 from app.models.investment_platform import InvestmentPlatformConnection
+from app.models.user import User
+from app.services.proactive_reviews import persist_reviews
 import logging
 from typing import Tuple
 
@@ -67,4 +69,34 @@ def start_background_sync(interval_seconds: int = 3600) -> Tuple[threading.Threa
     thread = threading.Thread(target=run_periodically, daemon=True)
     thread.start()
     logger.info(f"Background sync thread started with interval {interval_seconds} seconds")
+    return thread, stop_event
+
+
+def run_all_proactive_reviews() -> None:
+    """Generate deterministic findings for active users without changing financial data."""
+    db: Session = SessionLocal()
+    try:
+        user_ids = [row[0] for row in db.query(User.user_id).filter(User.is_active.is_(True)).all()]
+        for user_id in user_ids:
+            persist_reviews(db, user_id)
+        db.commit()
+        logger.info("Proactive review cycle completed for %d users", len(user_ids))
+    except Exception:
+        db.rollback()
+        logger.exception("Proactive review cycle failed without financial-data payloads")
+    finally:
+        db.close()
+
+
+def start_proactive_reviews(interval_seconds: int) -> Tuple[threading.Thread, threading.Event]:
+    stop_event = threading.Event()
+
+    def run_periodically():
+        while not stop_event.is_set():
+            run_all_proactive_reviews()
+            stop_event.wait(interval_seconds)
+
+    thread = threading.Thread(target=run_periodically, daemon=True)
+    thread.start()
+    logger.info("Proactive review scheduler started")
     return thread, stop_event

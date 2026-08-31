@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, Boolean, Integer, String, BigInteger, Date, text
+from sqlalchemy import Column, DateTime, Boolean, Integer, String, BigInteger, Date, Numeric, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from .base import Base, BaseModel
@@ -11,7 +11,9 @@ class DocumentStorage(Base, BaseModel):
     __tablename__ = "document_storage"
     __table_args__ = {'schema': 'documents'}
 
-    document_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # BaseModel contributes the legacy integer ``id`` primary-key column. Keep
+    # this public UUID independently unique so evidence tables can reference it.
+    document_id = Column(UUID(as_uuid=True), primary_key=True, unique=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), nullable=False)
     document_type = Column(String(30), nullable=False)
     original_filename = Column(String(255), nullable=False)
@@ -52,3 +54,22 @@ class ExtractedField(Base, BaseModel):
     user_corrected_date = Column(Date)
     user_corrected_text = Column(String)
     verification_timestamp = Column(DateTime(timezone=True))
+
+
+class DocumentCandidate(Base):
+    """Normalized numeric candidate; never authoritative before user confirmation."""
+    __tablename__ = "document_candidates"
+    __table_args__ = {"schema": "documents"}
+
+    candidate_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.document_storage.document_id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    fact_type = Column(String(60), nullable=False)
+    value = Column(Numeric(20, 4), nullable=False)
+    unit = Column(String(12), nullable=False, default="INR")
+    confidence = Column(Numeric(5, 4), nullable=False)
+    source_location = Column(String(100))
+    status = Column(String(20), nullable=False, default="candidate")
+    linked_fact_id = Column(UUID(as_uuid=True), ForeignKey("financial.financial_facts.fact_id"))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    decided_at = Column(DateTime(timezone=True))
