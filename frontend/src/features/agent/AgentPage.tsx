@@ -1,7 +1,7 @@
 import React, { FormEvent, useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import { Bell, Bot, Check, ChevronDown, CircleUserRound, Database, FolderLock, Gauge, Home, LockKeyhole, LogOut, Menu, MessageSquareText, Send, ShieldCheck, Sparkles, Target } from 'lucide-react';
-import { ApiError, confirmAction, createActionPlan, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, rankPlanningActions, runProactiveReviews, sendMessage, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type PlanningActionInput, type ProactiveReview, type RankedAction } from './api';
+import { ApiError, confirmAction, createActionPlan, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, grantCloudAssistanceConsent, listFinancialFacts, listProactiveReviews, login, rankPlanningActions, revokeCloudAssistanceConsent, runProactiveReviews, sendMessage, type AgentBlock, type AgentMessage, type CloudAssistanceConsent, type FinancialFact, type FreedomScenario, type PlanningActionInput, type ProactiveReview, type RankedAction } from './api';
 import { discardLocalDocumentSelection, getLocalDocumentCapabilities, isDesktopHost, processLocalDocument, selectLocalDocument, type LocalDocumentCandidate, type LocalDocumentCapabilities, type LocalDocumentSelection } from './desktop';
 
 const emptyScenario = {
@@ -21,6 +21,7 @@ interface RetryableMessage {
   content: string;
   scenario?: FreedomScenario;
   coverageTarget?: string;
+  cloudAssistance: boolean;
 }
 
 type WorkspaceSection = 'overview' | 'ask' | 'memory' | 'plans' | 'documents' | 'reviews';
@@ -44,6 +45,7 @@ function Evidence({ block }: { block: AgentBlock }) {
     return <div className="evidence warning"><strong>Information needed</strong><ul>{block.fields?.map(field => <li key={field}>{field}</li>)}</ul></div>;
   }
   if (block.type === 'warning') return <div className="evidence warning">This request is outside the agent’s planning boundary.</div>;
+  if (block.type === 'cloud_explanation') return <div className="evidence"><strong>Cloud-assisted explanation · {block.provider}</strong><p>{block.content}</p><small>Exact figures remain in the deterministic evidence card.</small></div>;
   return (
     <details className="evidence">
       <summary>Calculation evidence · {block.version}</summary>
@@ -85,6 +87,8 @@ const AgentPage: React.FC = () => {
   const [retryableMessage, setRetryableMessage] = useState<RetryableMessage>();
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('overview');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [cloudConsent, setCloudConsent] = useState<CloudAssistanceConsent>();
+  const [cloudAssistance, setCloudAssistance] = useState(false);
   const requestController = useRef<AbortController>();
 
   useEffect(() => {
@@ -261,11 +265,11 @@ const AgentPage: React.FC = () => {
         annual_return_rate: scenario.annual_return_rate,
         withdrawal_rate: scenario.withdrawal_rate,
       } : undefined;
-      const retryable = { conversationId: activeConversation, clientRequestId: crypto.randomUUID(), content, scenario: freedomScenario, coverageTarget: coverageTarget || undefined };
+      const retryable = { conversationId: activeConversation, clientRequestId: crypto.randomUUID(), content, scenario: freedomScenario, coverageTarget: coverageTarget || undefined, cloudAssistance };
       setRetryableMessage(retryable);
       const controller = new AbortController();
       requestController.current = controller;
-      const response = await sendMessage(token, activeConversation, content, retryable.clientRequestId, freedomScenario, coverageTarget, controller.signal);
+      const response = await sendMessage(token, activeConversation, content, retryable.clientRequestId, freedomScenario, coverageTarget, controller.signal, cloudAssistance);
       setMessages(current => [...current, response]);
       setRetryableMessage(undefined);
     } catch (reason) {
@@ -286,7 +290,7 @@ const AgentPage: React.FC = () => {
       const response = await sendMessage(
         token, retryableMessage.conversationId, retryableMessage.content,
         retryableMessage.clientRequestId, retryableMessage.scenario,
-        retryableMessage.coverageTarget, controller.signal,
+        retryableMessage.coverageTarget, controller.signal, retryableMessage.cloudAssistance,
       );
       setMessages(current => [...current, response]);
       setRetryableMessage(undefined);
@@ -297,6 +301,29 @@ const AgentPage: React.FC = () => {
         reportError(reason, 'The retry could not complete.');
       }
     } finally { requestController.current = undefined; setPending(false); setChatPending(false); }
+  };
+
+  const enableCloudAssistance = async () => {
+    setPending(true); setError('');
+    try {
+      const activeConversation = conversationId ?? await createConversation(token);
+      setConversationId(activeConversation);
+      const consent = await grantCloudAssistanceConsent(token, activeConversation);
+      setCloudConsent(consent); setCloudAssistance(true);
+      setStatusMessage('Cloud assistance is enabled only for this conversation. Raw documents and messages are excluded.');
+    } catch (reason) { reportError(reason, 'Cloud assistance could not be enabled.'); }
+    finally { setPending(false); }
+  };
+
+  const disableCloudAssistance = async () => {
+    if (!conversationId) return;
+    setPending(true); setError('');
+    try {
+      const consent = await revokeCloudAssistanceConsent(token, conversationId);
+      setCloudConsent(consent); setCloudAssistance(false);
+      setStatusMessage('Cloud assistance has been revoked for this conversation.');
+    } catch (reason) { reportError(reason, 'Cloud assistance could not be revoked.'); }
+    finally { setPending(false); }
   };
 
   if (!token) {
@@ -351,6 +378,7 @@ const AgentPage: React.FC = () => {
         ].map(([key, label]) => <label key={key}>{label}<input required type="number" step="any" value={scenario[key as keyof typeof scenario]} onChange={event => { setScenario(current => ({ ...current, [key]: event.target.value })); setScenarioConfirmed(false); }}/></label>)}
       </div><label className="scenario-confirm"><input type="checkbox" checked={scenarioConfirmed} onChange={event => setScenarioConfirmed(event.target.checked)}/> I confirm these are my scenario values and assumptions.</label></section>}
       <details className="scenario-card"><summary>Optional insurance coverage comparison</summary><p>Enter a coverage target you selected yourself. Private CFO will only compare it with stored coverage.</p><label>Coverage target (₹)<input type="number" min="0" step="0.01" value={coverageTarget} onChange={event => setCoverageTarget(event.target.value)}/></label></details>
+      <section className="scenario-card" aria-labelledby="cloud-assistance-title"><h2 id="cloud-assistance-title">Cloud-assisted explanations</h2><p>Optional for this conversation. OpenAI receives only your agent intent, relevant verified facts, and deterministic evidence. It never receives original documents, extracted text, file paths, identifiers, unverified facts, or your raw message.</p>{cloudAssistance ? <><p><strong>Enabled for this conversation</strong> · {cloudConsent?.policy_bundle_version || 'cloud-explanation-v1'}</p><Button type="button" disabled={pending} onClick={disableCloudAssistance}>Revoke cloud assistance</Button></> : <Button type="button" disabled={pending} onClick={enableCloudAssistance}>Enable cloud assistance</Button>}<p><a href={cloudConsent?.retention_url || 'https://platform.openai.com/docs/models/default-usage-policies-by-endpoint'} target="_blank" rel="noreferrer">Read provider retention information</a></p></section>
       <form className="composer" onSubmit={submit}><label htmlFor="agent-message" className="sr-only">Ask about your finances</label><textarea id="agent-message" value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask about your finances…" maxLength={4000}/>{chatPending ? <Button type="button" onClick={() => requestController.current?.abort()}>Cancel</Button> : <Button className="send-button" aria-label="Send" disabled={pending}><Send/><span>Send</span></Button>}</form>
       <footer className="app-disclaimer"><ShieldCheck/> Planning guidance, not investment, tax, or insurance advice.</footer>
       </main>

@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: private-cfo-api-pilot
+    runtime: docker
+    region: singapore
+    # A public pilot that holds confirmed financial facts cannot use Render's
+    # free tier: it has no managed Postgres backup or recovery capability.
+    plan: 0.5c-512mb
+    healthCheckPath: /health/ready
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: ENVIRONMENT
+        value: pilot
+      - key: DATABASE_URL
+        fromDatabase:
+          name: private-cfo-pilot-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: EXTERNAL_MODEL_PROVIDER
+        value: openai
+      - key: EXTERNAL_MODEL_APPROVAL_REFERENCE
+        sync: false
+      - key: ENABLE_EXTERNAL_MODEL
+        value: "false"
+      - key: ENABLE_EXTERNAL_WEBHOOKS
+        value: "false"
+      - key: ENABLE_FINANCIAL_INTEGRATIONS
+        value: "false"
+      - key: ENABLE_BACKGROUND_SYNC
+        value: "false"
+      - key: ENABLE_ADVISOR_ACCESS
+        value: "false"
+      - key: ENABLE_COMMUNITY_BENCHMARKS
+        value: "false"
+      - key: ENABLE_WELLNESS_PROGRAMS
+        value: "false"
+      - key: ENABLE_DATA_EXPORTS
+        value: "false"
+
+databases:
+  - name: private-cfo-pilot-db
+    region: singapore
+    plan: 0.5c-1g
+    diskSizeGB: 15
+    connectionPool: pgbouncer
+    # The application uses Render's private database connection string. Do not
+    # expose a public database endpoint for the pilot.
+    ipAllowList: []
+    databaseName: private_cfo
+    user: private_cfo

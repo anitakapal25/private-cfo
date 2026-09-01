@@ -7,6 +7,7 @@ from .agent import (  # noqa: F401
     Conversation,
     ConversationMessage,
     FinancialFact,
+    ModelConsent,
     EvidenceSource,
     ProactiveReview,
     PlannedAction,

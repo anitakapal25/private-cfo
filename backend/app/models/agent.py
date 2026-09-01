@@ -39,6 +39,27 @@ class ConversationMessage(Base):
     conversation = relationship("Conversation", back_populates="messages")
 
 
+class ModelConsent(Base):
+    """Conversation-scoped approval for a minimized external-model request."""
+
+    __tablename__ = "agent_model_consents"
+    __table_args__ = (
+        Index("uq_agent_model_consent_conversation", "conversation_id", unique=True),
+        {"schema": "financial"},
+    )
+
+    consent_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("financial.agent_conversations.conversation_id"), nullable=False)
+    provider = Column(String(40), nullable=False)
+    purpose = Column(String(120), nullable=False)
+    policy_bundle_version = Column(String(40), nullable=False)
+    data_categories = Column(JSONB, nullable=False)
+    status = Column(String(20), nullable=False, default="active")
+    granted_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    revoked_at = Column(DateTime(timezone=True))
+
+
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = {"schema": "financial"}
