@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -6,6 +6,7 @@ from app.routers import agent_v1, advisor, investment_platform, account_aggregat
 from app.auth.router import router as auth_router
 from app.core.background_tasks import start_background_sync, start_proactive_reviews
 from app.core.config import get_settings
+from app.core.config import engine
 from app.guardrails.financial_output import FinancialOutputError
 import os
 
@@ -63,6 +64,21 @@ if settings.enable_data_exports:
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/health/live")
+async def liveness_check():
+    return {"status": "live"}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    try:
+        with engine.connect() as connection:
+            connection.exec_driver_sql("SELECT 1")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Database unavailable") from exc
+    return {"status": "ready"}
 
 # Mount static files for frontend
 # Try the production build directory first

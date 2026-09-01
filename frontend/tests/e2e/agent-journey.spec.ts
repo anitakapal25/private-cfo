@@ -30,6 +30,38 @@ test('browser host never uploads local financial documents', async ({ page }) =>
   expect(documentRequests).toBe(0);
 });
 
+test('cloud assistance requires explicit per-conversation consent and explains its boundary', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  let consentPayload: Record<string, unknown> | undefined;
+  await page.route(`**/api/v1/agent/conversations/${conversationId}/cloud-assistance`, route => {
+    if (route.request().method() === 'POST') {
+      consentPayload = route.request().postDataJSON() as Record<string, unknown>;
+    }
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        consent_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        status: 'active',
+        provider: 'OpenAI',
+        purpose: 'Plain-language explanation of deterministic financial evidence',
+        policy_bundle_version: 'cloud-explanation-v1',
+        data_categories: ['agent_intent', 'verified_financial_facts', 'deterministic_calculation_evidence'],
+        excluded_categories: ['original_documents', 'document_text', 'file_paths', 'user_identifiers', 'unverified_facts', 'raw_user_message'],
+        retention_url: 'https://platform.openai.com/docs/models/default-usage-policies-by-endpoint',
+      }),
+    });
+  });
+
+  await signIn(page);
+  await page.getByRole('navigation').getByRole('button', { name: 'Ask Artha' }).click();
+  await expect(page.getByRole('heading', { name: 'Cloud-assisted explanations' })).toBeVisible();
+  await expect(page.getByText('It never receives original documents, extracted text, file paths, identifiers, unverified facts, or your raw message.')).toBeVisible();
+  await page.getByRole('button', { name: 'Enable cloud assistance' }).click();
+  await expect(page.getByText('Enabled for this conversation')).toBeVisible();
+  expect(consentPayload).toEqual({ privacy_notice_version: 'render-singapore-pilot-v1' });
+});
+
 async function signIn(page: Page) {
   await page.goto('/');
   await page.getByLabel('Email').fill('test@example.com');

@@ -418,10 +418,17 @@ class AgentOrchestrator:
         }
 
 
-def audit_agent_run(db: Session, user_id: uuid.UUID, assistant_message: ConversationMessage, answer: AgentAnswer) -> AgentRun:
+def audit_agent_run(
+    db: Session,
+    user_id: uuid.UUID,
+    assistant_message: ConversationMessage,
+    answer: AgentAnswer,
+    *,
+    model_used: bool = False,
+) -> AgentRun:
     run = AgentRun(
         run_id=uuid.uuid4(), user_id=user_id, message_id=assistant_message.message_id,
-        intent=answer.intent.value, policy_decision=answer.policy_decision, model_used=False,
+        intent=answer.intent.value, policy_decision=answer.policy_decision, model_used=model_used,
     )
     db.add(run)
     db.flush()
@@ -443,6 +450,10 @@ def audit_agent_run(db: Session, user_id: uuid.UUID, assistant_message: Conversa
         target_type="agent_run",
         target_id=str(run.run_id),
         outcome="success",
-        metadata_json={"intent": answer.intent.value, "policy_version": AGENT_POLICY_VERSION},
+        metadata_json={
+            "intent": answer.intent.value,
+            "policy_version": AGENT_POLICY_VERSION,
+            "model_used": model_used,
+        },
     ))
     return run

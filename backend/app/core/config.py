@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     proactive_review_interval_seconds: int = 86400
     financial_integration_provider: str | None = None
     financial_integration_approval_reference: str | None = None
+    openai_api_key: str | None = None
+    external_model_provider: str | None = None
+    external_model_approval_reference: str | None = None
 
     @model_validator(mode="after")
     def validate_secrets(self):
@@ -55,16 +58,26 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Financial integrations require an approved provider and release approval reference"
             )
-        if self.environment.lower() in {"production", "staging"}:
+        if self.environment.lower() in {"production", "staging", "pilot"}:
             if not self.jwt_secret or len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET of at least 32 characters is required")
             if not self.encryption_key:
                 raise ValueError("ENCRYPTION_KEY is required")
+            if self.database_url.endswith("artha_dev"):
+                raise ValueError("DATABASE_URL must be configured outside development")
         elif not self.jwt_secret:
             self.jwt_secret = secrets.token_urlsafe(48)
             logger.warning(
                 "JWT_SECRET is unset; using an ephemeral development key. "
                 "Tokens will be invalid after restart."
+            )
+        if self.enable_external_model and (
+            self.external_model_provider != "openai"
+            or not self.openai_api_key
+            or not self.external_model_approval_reference
+        ):
+            raise ValueError(
+                "External model use requires the approved OpenAI provider, API key, and release approval reference"
             )
         return self
 

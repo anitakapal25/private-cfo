@@ -1,5 +1,5 @@
 export interface AgentBlock {
-  type: 'calculation' | 'missing_data' | 'warning';
+  type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation';
   fields?: string[];
   code?: string;
   calculation_id?: string;
@@ -7,6 +7,21 @@ export interface AgentBlock {
   result?: Record<string, unknown>;
   assumptions?: Record<string, unknown>;
   limitations?: string[];
+  provider?: string;
+  policy_bundle_version?: string;
+  content?: string;
+  data_categories?: string[];
+}
+
+export interface CloudAssistanceConsent {
+  consent_id?: string;
+  status: 'active' | 'revoked' | 'not_granted';
+  provider: string;
+  purpose: string;
+  policy_bundle_version: string;
+  data_categories: string[];
+  excluded_categories: string[];
+  retention_url: string;
 }
 
 export interface AgentMessage {
@@ -109,10 +124,24 @@ export async function createConversation(token: string): Promise<string> {
   return result.conversation_id;
 }
 
-export function sendMessage(token: string, conversationId: string, content: string, clientRequestId: string, freedomScenario?: FreedomScenario, coverageTarget?: string, signal?: AbortSignal): Promise<AgentMessage> {
+export function sendMessage(token: string, conversationId: string, content: string, clientRequestId: string, freedomScenario?: FreedomScenario, coverageTarget?: string, signal?: AbortSignal, cloudAssistance = false): Promise<AgentMessage> {
   return request<AgentMessage>(`/conversations/${conversationId}/messages`, token, {
-    method: 'POST', signal, body: JSON.stringify({ content, client_request_id: clientRequestId, freedom_scenario: freedomScenario, user_selected_coverage_target: coverageTarget || undefined }),
+    method: 'POST', signal, body: JSON.stringify({ content, client_request_id: clientRequestId, freedom_scenario: freedomScenario, user_selected_coverage_target: coverageTarget || undefined, cloud_assistance: cloudAssistance }),
   });
+}
+
+export function getCloudAssistanceConsent(token: string, conversationId: string): Promise<CloudAssistanceConsent> {
+  return request<CloudAssistanceConsent>(`/conversations/${conversationId}/cloud-assistance`, token);
+}
+
+export function grantCloudAssistanceConsent(token: string, conversationId: string): Promise<CloudAssistanceConsent> {
+  return request<CloudAssistanceConsent>(`/conversations/${conversationId}/cloud-assistance`, token, {
+    method: 'POST', body: JSON.stringify({ privacy_notice_version: 'render-singapore-pilot-v1' }),
+  });
+}
+
+export function revokeCloudAssistanceConsent(token: string, conversationId: string): Promise<CloudAssistanceConsent> {
+  return request<CloudAssistanceConsent>(`/conversations/${conversationId}/cloud-assistance`, token, { method: 'DELETE' });
 }
 
 export function listFinancialFacts(token: string): Promise<FinancialFact[]> {

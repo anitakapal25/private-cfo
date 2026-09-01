@@ -13,7 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.auth.manager import get_current_active_user
 from app.core.config import Settings, get_db, get_settings
-from app.models.agent import ActionPlan, AgentRun, AuditEvent, Confirmation, Conversation, ConversationMessage, FinancialFact, PlannedAction, ProactiveReview
+from app.core.model_gateway import MODEL_POLICY_BUNDLE_VERSION, ModelRequest, OpenAIModelGateway
+from app.models.agent import ActionPlan, AgentRun, AuditEvent, Confirmation, Conversation, ConversationMessage, FinancialFact, ModelConsent, PlannedAction, ProactiveReview
 from app.models.user import User
 from app.services.agent_orchestrator import AgentOrchestrator, audit_agent_run
 from app.services.financial_freedom import FreedomProjectionInputs
@@ -21,8 +22,26 @@ from app.services.ecosystem_capabilities import get_ecosystem_capabilities
 from app.services.financial_context import ALLOWED_FACT_TYPES, FinancialContextService
 from app.services.recommendation_planner import CandidateAction, rank_actions
 from app.services.proactive_reviews import persist_reviews
+from app.guardrails.data_redaction import redact_sensitive
 
 router = APIRouter()
+
+CLOUD_ASSISTANCE_CATEGORIES = (
+    "agent_intent",
+    "verified_financial_facts",
+    "deterministic_calculation_evidence",
+)
+CLOUD_ASSISTANCE_PURPOSE = "Plain-language explanation of deterministic financial evidence"
+CLOUD_ASSISTANCE_RETENTION_URL = "https://platform.openai.com/docs/models/default-usage-policies-by-endpoint"
+CLOUD_ASSISTANCE_FACT_TYPES = {
+    "net_worth": {"total_assets", "total_liabilities"},
+    "cash_flow": {"monthly_income", "monthly_expenses"},
+    "cash_flow_forecast": {"monthly_income", "monthly_expenses"},
+    "debt_analysis": {"monthly_income", "monthly_debt_payments", "debt_outstanding"},
+    "goal_progress": {"goal_current", "goal_target"},
+    "insurance_gap": {"insurance_coverage"},
+    "emergency_fund": {"liquid_assets", "monthly_expenses"},
+}
 
 
 @router.get("/capabilities")
@@ -70,6 +89,7 @@ class SendMessageRequest(BaseModel):
     user_selected_coverage_target: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    cloud_assistance: bool = False
 
 
 class MessageResponse(BaseModel):
@@ -79,6 +99,80 @@ class MessageResponse(BaseModel):
     content: str
     blocks: list[dict[str, Any]]
     created_at: datetime
+
+
+class CloudAssistanceConsentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    consent_id: UUID | None = None
+    status: Literal["active", "revoked", "not_granted"]
+    provider: str = "OpenAI"
+    purpose: str = CLOUD_ASSISTANCE_PURPOSE
+    policy_bundle_version: str = MODEL_POLICY_BUNDLE_VERSION
+    data_categories: list[str] = Field(default_factory=lambda: list(CLOUD_ASSISTANCE_CATEGORIES))
+    excluded_categories: list[str] = Field(default_factory=lambda: [
+        "original_documents", "document_text", "file_paths", "user_identifiers",
+        "unverified_facts", "raw_user_message",
+    ])
+    retention_url: str = CLOUD_ASSISTANCE_RETENTION_URL
+    granted_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class GrantCloudAssistanceConsentRequest(BaseModel):
+    privacy_notice_version: str = Field(min_length=1, max_length=40)
+
+
+def active_cloud_consent(db: Session, conversation_id: UUID, user_id: UUID) -> ModelConsent | None:
+    return db.query(ModelConsent).filter(
+        ModelConsent.conversation_id == conversation_id,
+        ModelConsent.user_id == user_id,
+        ModelConsent.status == "active",
+    ).first()
+
+
+def cloud_consent_response(consent: ModelConsent | None) -> CloudAssistanceConsentResponse:
+    if consent is None:
+        return CloudAssistanceConsentResponse(status="not_granted")
+    return CloudAssistanceConsentResponse(
+        consent_id=consent.consent_id,
+        status=consent.status,
+        provider="OpenAI",
+        purpose=consent.purpose,
+        policy_bundle_version=consent.policy_bundle_version,
+        data_categories=list(consent.data_categories),
+        granted_at=consent.granted_at,
+        revoked_at=consent.revoked_at,
+    )
+
+
+def minimized_model_request(db: Session, user_id: UUID, intent: str, blocks: list[dict[str, Any]]) -> ModelRequest:
+    allowed_fact_types = CLOUD_ASSISTANCE_FACT_TYPES.get(intent, set())
+    facts = db.query(FinancialFact).filter(
+        FinancialFact.user_id == user_id,
+        FinancialFact.verification_status == "verified",
+        FinancialFact.fact_type.in_(allowed_fact_types),
+    ).all()
+    verified_context = {
+        fact.fact_type: {"value": str(fact.value), "unit": fact.unit}
+        for fact in facts
+    }
+    evidence = [
+        {
+            "type": block["type"],
+            "calculation_id": block.get("calculation_id"),
+            "version": block.get("version"),
+            "result": block.get("result"),
+            "assumptions": block.get("assumptions"),
+            "limitations": block.get("limitations", []),
+            "rule_versions": block.get("rule_versions", {}),
+        }
+        for block in blocks if block.get("type") == "calculation"
+    ]
+    return ModelRequest(
+        intent=intent,
+        redacted_context=redact_sensitive(verified_context),
+        tool_results=redact_sensitive(evidence),
+    )
 
 
 class ConfirmationRequest(BaseModel):
@@ -334,6 +428,117 @@ def get_conversation(
     db: Session = Depends(get_db),
 ):
     conversation = owned_conversation(db, conversation_id, current_user.user_id)
+    return {
+        "conversation": ConversationResponse.model_validate(conversation),
+        "messages": [
+            {"message_id": row.message_id, "role": row.role, "content": row.content,
+             "blocks": row.structured_content.get("blocks", []), "created_at": row.created_at}
+            for row in sorted(conversation.messages, key=lambda item: item.created_at)
+        ],
+    }
+
+
+@router.get(
+    "/conversations/{conversation_id}/cloud-assistance",
+    response_model=CloudAssistanceConsentResponse,
+)
+def get_cloud_assistance_consent(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    owned_conversation(db, conversation_id, current_user.user_id)
+    consent = db.query(ModelConsent).filter(
+        ModelConsent.conversation_id == conversation_id,
+        ModelConsent.user_id == current_user.user_id,
+    ).first()
+    return cloud_consent_response(consent)
+
+
+@router.post(
+    "/conversations/{conversation_id}/cloud-assistance",
+    response_model=CloudAssistanceConsentResponse,
+    status_code=201,
+)
+def grant_cloud_assistance_consent(
+    conversation_id: UUID,
+    payload: GrantCloudAssistanceConsentRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    owned_conversation(db, conversation_id, current_user.user_id)
+    consent = db.query(ModelConsent).filter(
+        ModelConsent.conversation_id == conversation_id,
+        ModelConsent.user_id == current_user.user_id,
+    ).with_for_update().first()
+    now = datetime.now(timezone.utc)
+    if consent is None:
+        consent = ModelConsent(
+            user_id=current_user.user_id,
+            conversation_id=conversation_id,
+            provider="openai",
+            purpose=CLOUD_ASSISTANCE_PURPOSE,
+            policy_bundle_version=MODEL_POLICY_BUNDLE_VERSION,
+            data_categories=list(CLOUD_ASSISTANCE_CATEGORIES),
+            status="active",
+            granted_at=now,
+        )
+        db.add(consent)
+    else:
+        consent.status = "active"
+        consent.policy_bundle_version = MODEL_POLICY_BUNDLE_VERSION
+        consent.data_categories = list(CLOUD_ASSISTANCE_CATEGORIES)
+        consent.granted_at = now
+        consent.revoked_at = None
+    db.add(AuditEvent(
+        user_id=current_user.user_id,
+        event_type="cloud_assistance_consent_granted",
+        target_type="conversation",
+        target_id=str(conversation_id),
+        outcome="success",
+        metadata_json={"notice_version": payload.privacy_notice_version, "policy_bundle_version": MODEL_POLICY_BUNDLE_VERSION},
+    ))
+    db.commit()
+    db.refresh(consent)
+    return cloud_consent_response(consent)
+
+
+@router.delete(
+    "/conversations/{conversation_id}/cloud-assistance",
+    response_model=CloudAssistanceConsentResponse,
+)
+def revoke_cloud_assistance_consent(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    owned_conversation(db, conversation_id, current_user.user_id)
+    consent = active_cloud_consent(db, conversation_id, current_user.user_id)
+    if consent is None:
+        return CloudAssistanceConsentResponse(status="not_granted")
+    consent.status = "revoked"
+    consent.revoked_at = datetime.now(timezone.utc)
+    db.add(AuditEvent(
+        user_id=current_user.user_id,
+        event_type="cloud_assistance_consent_revoked",
+        target_type="conversation",
+        target_id=str(conversation_id),
+        outcome="success",
+        metadata_json={"policy_bundle_version": MODEL_POLICY_BUNDLE_VERSION},
+    ))
+    db.commit()
+    db.refresh(consent)
+    return cloud_consent_response(consent)
+
+
+@router.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
+async def send_message(
+    conversation_id: UUID,
+    payload: SendMessageRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    conversation = owned_conversation(db, conversation_id, current_user.user_id)
     if payload.client_request_id is not None:
         prior = db.query(ConversationMessage).filter(
             ConversationMessage.conversation_id == conversation.conversation_id,
@@ -349,24 +554,6 @@ def get_conversation(
                 content=prior.content, blocks=prior.structured_content.get("blocks", []),
                 created_at=prior.created_at,
             )
-    return {
-        "conversation": ConversationResponse.model_validate(conversation),
-        "messages": [
-            {"message_id": row.message_id, "role": row.role, "content": row.content,
-             "blocks": row.structured_content.get("blocks", []), "created_at": row.created_at}
-            for row in sorted(conversation.messages, key=lambda item: item.created_at)
-        ],
-    }
-
-
-@router.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
-def send_message(
-    conversation_id: UUID,
-    payload: SendMessageRequest,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-):
-    conversation = owned_conversation(db, conversation_id, current_user.user_id)
     user_message = ConversationMessage(
         message_id=uuid4(), conversation_id=conversation.conversation_id,
         role="user", content=payload.content, structured_content={},
@@ -379,6 +566,29 @@ def send_message(
     answer = AgentOrchestrator(db, current_user.user_id).answer(
         payload.content, freedom_inputs, payload.user_selected_coverage_target
     )
+    model_used = False
+    if payload.cloud_assistance:
+        settings = get_settings()
+        if not settings.enable_external_model:
+            raise HTTPException(status_code=503, detail="Cloud assistance is not enabled for this release")
+        if active_cloud_consent(db, conversation_id, current_user.user_id) is None:
+            raise HTTPException(status_code=409, detail="Cloud assistance requires active consent for this conversation")
+        model_request = minimized_model_request(db, current_user.user_id, answer.intent.value, answer.blocks)
+        try:
+            explanation = await OpenAIModelGateway(settings.openai_api_key or "").compose(model_request)
+            answer.blocks.append({
+                "type": "cloud_explanation",
+                "provider": "OpenAI",
+                "policy_bundle_version": MODEL_POLICY_BUNDLE_VERSION,
+                "content": explanation,
+                "data_categories": list(CLOUD_ASSISTANCE_CATEGORIES),
+            })
+            model_used = True
+        except Exception:
+            answer.blocks.append({
+                "type": "warning",
+                "code": "CLOUD_EXPLANATION_UNAVAILABLE",
+            })
     assistant_message = ConversationMessage(
         message_id=uuid4(), conversation_id=conversation.conversation_id,
         role="assistant", content=answer.narrative, structured_content={"blocks": answer.blocks},
@@ -386,7 +596,7 @@ def send_message(
     )
     db.add(assistant_message)
     db.flush()
-    run = audit_agent_run(db, current_user.user_id, assistant_message, answer)
+    run = audit_agent_run(db, current_user.user_id, assistant_message, answer, model_used=model_used)
     db.commit()
     return MessageResponse(
         message_id=assistant_message.message_id, run_id=run.run_id,

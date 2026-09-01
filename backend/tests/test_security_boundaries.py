@@ -10,9 +10,11 @@ from fastapi.routing import APIRoute
 from app.auth.manager import get_current_active_user
 from app.core import crypto
 from app.core.config import Settings
+from app.core import model_gateway
+from app.core.model_gateway import ModelRequest, ModelSafetyError, OpenAIModelGateway
 from app.main import app
-from app.models.agent import ConversationMessage
-from app.routers.agent_v1 import CreateFinancialFactRequest
+from app.models.agent import ConversationMessage, ModelConsent
+from app.routers.agent_v1 import CLOUD_ASSISTANCE_CATEGORIES, CreateFinancialFactRequest, cloud_consent_response
 from app.routers.account_aggregator import AccountAggregatorConnectionResponse
 from app.routers.investment_platform import InvestmentPlatformConnectionResponse
 from app.routers.webhook import WebhookSubscriptionResponse
@@ -197,6 +199,60 @@ def test_agent_message_client_request_id_has_unique_conversation_scope():
     )
     assert index.unique is True
     assert [column.name for column in index.columns] == ["conversation_id", "client_request_id"]
+
+
+def test_cloud_assistance_policy_excludes_raw_documents_and_messages():
+    response = cloud_consent_response(None)
+
+    assert response.status == "not_granted"
+    assert "verified_financial_facts" in CLOUD_ASSISTANCE_CATEGORIES
+    assert "original_documents" in response.excluded_categories
+    assert "document_text" in response.excluded_categories
+    assert "raw_user_message" in response.excluded_categories
+
+
+def test_model_consent_is_unique_per_conversation():
+    index = next(
+        item for item in ModelConsent.__table__.indexes
+        if item.name == "uq_agent_model_consent_conversation"
+    )
+    assert index.unique is True
+    assert [column.name for column in index.columns] == ["conversation_id"]
+
+
+def test_external_model_requires_provider_key_and_release_reference():
+    with pytest.raises(ValueError, match="External model use requires"):
+        Settings(
+            _env_file=None,
+            environment="test",
+            jwt_secret="test-secret",
+            enable_external_model=True,
+        )
+
+
+def test_openai_gateway_rejects_untraceable_numbers(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"output_text": "Your amount is 100."}
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, *_args, **_kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(model_gateway.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    request = ModelRequest(intent="net_worth", redacted_context={}, tool_results=[])
+
+    with pytest.raises(ModelSafetyError):
+        asyncio.run(OpenAIModelGateway("test-key").compose(request))
 
 
 def test_local_document_fact_requires_only_an_opaque_evidence_reference():

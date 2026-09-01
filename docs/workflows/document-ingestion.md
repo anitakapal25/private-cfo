@@ -53,8 +53,10 @@ runtime configuration. The browser contract test also fails if any document requ
 attempted.
 
 The Debian package declares bubblewrap, ClamAV and Poppler as required dependencies.
-CI builds the package, and the desktop reports missing prerequisites before permitting
-selection. ClamAV signature updates remain the host package manager's responsibility.
+A CI package-build workflow is configured for Debian, macOS and Windows; its runs are
+release evidence only after the relevant platform job passes. The desktop reports
+missing prerequisites before permitting selection. ClamAV signature updates remain the
+host package manager's responsibility.
 
 The Linux MVP acceptance criteria are implemented in code. Production distribution is
 still prohibited until the generated package is signed with an organization-controlled
