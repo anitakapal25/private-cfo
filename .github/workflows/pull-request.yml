@@ -90,3 +90,4 @@ jobs:
           python-version: "3.12"
       - run: python scripts/check_repository_guardrails.py
       - run: python scripts/check_documentation.py
+      - run: python scripts/check_dependency_health.py

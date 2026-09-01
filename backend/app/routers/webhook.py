@@ -7,7 +7,7 @@ from app.core.config import get_db
 from app.models.user import User
 from app.models.webhook import WebhookSubscription, WebhookDelivery
 from app.auth.manager import get_current_active_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import uuid
 from uuid import UUID
@@ -38,24 +38,22 @@ class WebhookSubscriptionUpdate(WebhookSubscriptionBase):
     secret: Optional[str] = None
 
 class WebhookSubscriptionResponse(WebhookSubscriptionBase):
+    model_config = ConfigDict(from_attributes=True)
+
     subscription_id: UUID
     is_active: bool
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 class WebhookDeliveryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     delivery_id: UUID
     event_type: str
     status_code: Optional[int]
     error_message: Optional[str]
     attempted_at: datetime
     completed_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
 
 
 def validate_webhook_url(url: str) -> None:

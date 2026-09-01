@@ -65,6 +65,7 @@ Operational workflows:
 - [Model release](workflows/model-release.md)
 - [Ecosystem integration release](workflows/ecosystem-release.md)
 - [Codex agent and skill audit](agent-skill-audit.md)
+- [Developer workflow and local quality gates](developer-workflow.md)
 
 ## Required review gates
 
