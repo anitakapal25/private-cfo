@@ -5,7 +5,7 @@ from app.core.config import get_db, get_settings
 from app.models.user import User
 from app.models.account_aggregator import AccountAggregatorConnection
 from app.auth.manager import get_current_active_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import uuid
 from uuid import UUID
@@ -28,6 +28,8 @@ class AccountAggregatorConnectionUpdate(AccountAggregatorConnectionBase):
     credentials: Optional[str] = None
 
 class AccountAggregatorConnectionResponse(AccountAggregatorConnectionBase):
+    model_config = ConfigDict(from_attributes=True)
+
     connection_id: UUID
     user_id: UUID
     is_active: bool
@@ -36,9 +38,6 @@ class AccountAggregatorConnectionResponse(AccountAggregatorConnectionBase):
     last_error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 @router.post("/connections", response_model=AccountAggregatorConnectionResponse)
 async def create_account_aggregator_connection(

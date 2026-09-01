@@ -82,6 +82,75 @@ def classify_intent(message: str) -> Intent:
     return Intent.GENERAL_EDUCATION
 
 
+EDUCATIONAL_FIELD_EXPLANATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("goal_current", "goal current", "current goal amount"),
+        "`goal_current` is the amount already set aside for one financial goal. "
+        "For example, if an education goal is ₹5,00,000 and ₹1,25,000 has been saved for it, "
+        "the current goal amount is ₹1,25,000. It is not your total assets.",
+    ),
+    (
+        ("goal_target", "goal target", "target goal amount"),
+        "`goal_target` is the total amount you want to reach for one financial goal. "
+        "For example, if you want ₹5,00,000 for education, the goal target is ₹5,00,000. "
+        "Artha compares it with the current goal amount to show progress.",
+    ),
+    (
+        ("monthly_income", "monthly income"),
+        "`monthly_income` is the income amount you choose to record for one month. "
+        "For example, if your monthly take-home income is ₹80,000, record ₹80,000. "
+        "Use a consistent definition when you update it.",
+    ),
+    (
+        ("monthly_expenses", "monthly expenses"),
+        "`monthly_expenses` is the monthly spending amount you choose to record. "
+        "For example, if your regular monthly spending totals ₹50,000, record ₹50,000. "
+        "It is used with confirmed monthly income for cash-flow calculations.",
+    ),
+    (
+        ("total_assets", "total assets"),
+        "`total_assets` is the total value of assets you choose to include in your record. "
+        "For example, cash, investments, and other assets adding to ₹12,00,000 would be recorded as ₹12,00,000. "
+        "It is used with total liabilities for net-worth calculations.",
+    ),
+    (
+        ("total_liabilities", "total liabilities"),
+        "`total_liabilities` is the total amount you owe that you choose to include in your record. "
+        "For example, outstanding loans totaling ₹3,00,000 would be recorded as ₹3,00,000.",
+    ),
+    (
+        ("liquid_assets", "liquid assets"),
+        "`liquid_assets` is the amount you can access relatively quickly for spending or emergencies. "
+        "For example, cash and readily accessible bank balances totaling ₹1,50,000 could be recorded as ₹1,50,000.",
+    ),
+    (
+        ("monthly_debt_payments", "monthly debt payments"),
+        "`monthly_debt_payments` is the total debt repayment amount due each month. "
+        "For example, EMIs totaling ₹18,000 per month would be recorded as ₹18,000.",
+    ),
+    (
+        ("debt_outstanding", "debt outstanding"),
+        "`debt_outstanding` is the remaining balance you owe across the debts you choose to include. "
+        "For example, remaining loan balances totaling ₹4,50,000 would be recorded as ₹4,50,000.",
+    ),
+    (
+        ("insurance_coverage", "insurance coverage"),
+        "`insurance_coverage` is the coverage amount shown in the policy or policies you choose to record. "
+        "For example, a policy with ₹25,00,000 cover would be recorded as ₹25,00,000. "
+        "Artha can compare it only with a target you select; it does not recommend a coverage level or product.",
+    ),
+)
+
+
+def explain_verified_memory_term(message: str) -> str | None:
+    """Return generic field education without reading a user's financial context."""
+    normalized = " ".join(message.lower().replace("_", " ").split())
+    for aliases, explanation in EDUCATIONAL_FIELD_EXPLANATIONS:
+        if any(alias.replace("_", " ") in normalized for alias in aliases):
+            return explanation
+    return None
+
+
 def _monthly(value: Decimal, frequency: str) -> Decimal:
     factors = {
         "monthly": Decimal("1"),
@@ -125,6 +194,14 @@ class AgentOrchestrator:
                 narrative=decision.safe_response or "That request is outside my planning boundary.",
                 blocks=[{"type": "warning", "code": decision.reason}],
                 policy_decision="block",
+            )
+
+        explanation = explain_verified_memory_term(message)
+        if explanation:
+            return AgentAnswer(
+                intent=Intent.GENERAL_EDUCATION,
+                narrative=explanation,
+                blocks=[],
             )
 
         intent = classify_intent(message)

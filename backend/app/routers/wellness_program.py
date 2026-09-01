@@ -5,7 +5,7 @@ from app.core.config import get_db
 from app.models.user import User
 from app.models.wellness_program import EmployerWellnessProgram, UserWellnessParticipation
 from app.auth.manager import get_current_active_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import uuid
 from uuid import UUID
@@ -27,14 +27,13 @@ class EmployerWellnessProgramCreate(EmployerWellnessProgramBase):
     pass
 
 class EmployerWellnessProgramResponse(EmployerWellnessProgramBase):
+    model_config = ConfigDict(from_attributes=True)
+
     program_id: UUID
     is_active: bool
     current_participants: int
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class UserWellnessParticipationBase(BaseModel):
     program_id: str
@@ -45,6 +44,8 @@ class UserWellnessParticipationCreate(UserWellnessParticipationBase):
     pass
 
 class UserWellnessParticipationResponse(UserWellnessParticipationBase):
+    model_config = ConfigDict(from_attributes=True)
+
     participation_id: UUID
     user_id: UUID
     enrollment_date: datetime
@@ -53,9 +54,6 @@ class UserWellnessParticipationResponse(UserWellnessParticipationBase):
     rewards_redeemed: int
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 @router.post("/programs", response_model=EmployerWellnessProgramResponse)
 async def create_wellness_program(

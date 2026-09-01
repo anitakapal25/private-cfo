@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from app.core.model_gateway import DisabledModelGateway, ModelDisabledError, ModelRequest
-from app.services.agent_orchestrator import Intent, classify_intent
+from app.services.agent_orchestrator import Intent, classify_intent, explain_verified_memory_term
 from app.services.agent_policy import ToolAuthorizationError, authorize_tool
 from app.guardrails.regulatory_language import Decision, evaluate_financial_request
 
@@ -14,6 +14,20 @@ def test_agent_classifies_financial_freedom_intent():
 
 def test_agent_classifies_cash_flow_intent():
     assert classify_intent("What is my monthly surplus?") is Intent.CASH_FLOW
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("What is goal_current?", "amount already set aside"),
+        ("Explain goal_target with an example", "total amount you want to reach"),
+        ("What does monthly expenses mean?", "monthly spending amount"),
+    ],
+)
+def test_agent_explains_verified_memory_terms_without_calculation(message, expected):
+    explanation = explain_verified_memory_term(message)
+    assert explanation is not None
+    assert expected in explanation
 
 
 @pytest.mark.parametrize(

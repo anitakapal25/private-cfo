@@ -5,7 +5,7 @@ from app.core.config import get_db
 from app.models.user import User
 from app.models.community import CommunityBenchmark
 from app.auth.manager import get_current_active_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import uuid
 from uuid import UUID
@@ -27,11 +27,10 @@ class CommunityBenchmarkCreate(CommunityBenchmarkBase):
     pass
 
 class CommunityBenchmarkResponse(CommunityBenchmarkBase):
+    model_config = ConfigDict(from_attributes=True)
+
     benchmark_id: UUID
     calculated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 @router.post("/benchmarks", response_model=CommunityBenchmarkResponse)
 async def create_community_benchmark(

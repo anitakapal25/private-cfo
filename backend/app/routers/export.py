@@ -6,7 +6,7 @@ from app.models.user import User
 from app.models.export import TaxExportTemplate, TaxExport, LoanApplicationExport
 from app.models.financial import IncomeSource, Asset, Liability
 from app.auth.manager import get_current_active_user
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime, timedelta
 import uuid
 from uuid import UUID
@@ -26,12 +26,11 @@ class TaxExportTemplateCreate(TaxExportTemplateBase):
     pass
 
 class TaxExportTemplateResponse(TaxExportTemplateBase):
+    model_config = ConfigDict(from_attributes=True)
+
     template_id: UUID
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 # Pydantic models for TaxExport
 class TaxExportBase(BaseModel):
@@ -43,6 +42,8 @@ class TaxExportCreate(TaxExportBase):
     pass
 
 class TaxExportResponse(TaxExportBase):
+    model_config = ConfigDict(from_attributes=True)
+
     export_id: UUID
     user_id: UUID
     export_data: str
@@ -52,9 +53,6 @@ class TaxExportResponse(TaxExportBase):
     download_count: int
     created_at: datetime
     expires_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
 
 # Pydantic models for LoanApplicationExport
 class LoanApplicationExportBase(BaseModel):
@@ -65,6 +63,8 @@ class LoanApplicationExportCreate(LoanApplicationExportBase):
     pass
 
 class LoanApplicationExportResponse(LoanApplicationExportBase):
+    model_config = ConfigDict(from_attributes=True)
+
     export_id: UUID
     user_id: UUID
     export_data: str
@@ -74,9 +74,6 @@ class LoanApplicationExportResponse(LoanApplicationExportBase):
     download_count: int
     created_at: datetime
     expires_at: Optional[datetime]
-
-    class Config:
-        from_attributes = True
 
 # Tax Export Template Endpoints (Admin only)
 @router.post("/templates/tax", response_model=TaxExportTemplateResponse)
