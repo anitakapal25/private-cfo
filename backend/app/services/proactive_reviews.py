@@ -39,7 +39,11 @@ def generate_findings(
         })
 
     income, expenses = current.get("monthly_income"), current.get("monthly_expenses")
-    if income and expenses and Decimal(income.value) < Decimal(expenses.value):
+    if (
+        income and expenses
+        and income.period_start == expenses.period_start
+        and Decimal(income.value) < Decimal(expenses.value)
+    ):
         deficit = Decimal(expenses.value) - Decimal(income.value)
         findings.append({
             "finding_type": "negative_monthly_cash_flow",

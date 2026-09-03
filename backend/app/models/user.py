@@ -17,19 +17,22 @@ class User(Base, BaseModel):
     __table_args__ = {'schema': 'financial'}
 
     user_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    date_of_birth = Column(DateTime(timezone=True), nullable=False)
+    date_of_birth = Column(DateTime(timezone=True))
     gender = Column(CHAR(1))  # 'M', 'F', 'O' (other), or NULL
     marital_status = Column(String(20))  # 'single', 'married', 'divorced', 'widowed'
     dependents_count = Column(Integer, nullable=False, default=0)
     residential_status = Column(String(20), nullable=False, default='resident_indian')
     pan_last_four = Column(CHAR(4))  # Last 4 digits of PAN for reference only
     aadhaar_last_four = Column(CHAR(4))  # Last 4 digits of Aadhaar for reference only
-    employment_status = Column(String(20), nullable=False)  # 'employed', 'unemployed', 'self_employed', 'retired'
+    employment_status = Column(String(20))  # 'employed', 'unemployed', 'self_employed', 'retired'
     primary_occupation = Column(String(100))
     # Authentication fields
     hashed_password = Column(String(255), nullable=True)  # hashed password for auth
     is_active = Column(Boolean, nullable=False, default=True)
     last_login = Column(DateTime(timezone=True), nullable=True)
+    failed_login_count = Column(Integer, nullable=False, default=0)
+    lockout_count = Column(Integer, nullable=False, default=0)
+    lockout_until = Column(DateTime(timezone=True), nullable=True)
     # Role-based access control
     role = Column(String(20), nullable=False, default='user')  # 'user', 'advisor', 'admin'
 
@@ -63,9 +66,9 @@ class Profile(Base, BaseModel):
 
     profile_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False, unique=True)
-    full_name = Column(String(200), nullable=False)
+    full_name = Column(String(200))
     email_address = Column(String(255), nullable=False, unique=True)
-    phone_number = Column(String(20), nullable=False, unique=True)
+    phone_number = Column(String(20), unique=True)
     address_line1 = Column(String(255))
     address_line2 = Column(String(255))
     city = Column(String(100))

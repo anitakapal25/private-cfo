@@ -42,9 +42,10 @@ control. Do not put credentials, keys, approval references or user data in this 
 
 ## Release blockers
 
-- Public registration is not implemented. Email verification, password reset,
-  refresh-token rotation/revocation, rate limiting, progressive lockout and MFA must
-  be implemented and independently tested before public sign-up is enabled.
+- Public registration is disabled by configuration. Email verification, password reset,
+  refresh-token rotation/revocation, rate limiting, progressive lockout and TOTP MFA
+  are implemented, but SMTP delivery, operational monitoring and PostgreSQL-backed
+  end-to-end security evidence are required before public sign-up is enabled.
 - Data-rights requests, retention/deletion propagation, the public privacy notice,
   grievance contact and incident-contact operations are documented workflows, not yet
   production APIs or operational evidence.

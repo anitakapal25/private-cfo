@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     external_model_provider: str | None = None
     external_model_approval_reference: str | None = None
+    enable_public_registration: bool = False
+    email_delivery_mode: str = "disabled"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_security: str = "starttls"
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    email_from_address: str | None = None
+    public_app_url: str | None = None
 
     @model_validator(mode="after")
     def validate_secrets(self):
@@ -79,6 +88,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "External model use requires the approved OpenAI provider, API key, and release approval reference"
             )
+        if self.email_delivery_mode not in {"disabled", "smtp"}:
+            raise ValueError("EMAIL_DELIVERY_MODE must be disabled or smtp")
+        if self.smtp_security not in {"ssl", "starttls"}:
+            raise ValueError("SMTP_SECURITY must be ssl or starttls")
+        if self.enable_public_registration and self.email_delivery_mode != "smtp":
+            raise ValueError("Public registration requires SMTP email delivery")
+        if self.email_delivery_mode == "smtp" and not all((
+            self.smtp_host, self.smtp_username, self.smtp_password,
+            self.email_from_address, self.public_app_url,
+        )):
+            raise ValueError("SMTP email delivery requires host, credentials, from address, and public app URL")
         return self
 
 

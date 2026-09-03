@@ -14,6 +14,13 @@ This document defines the database schema for Financial Freedom Copilot (ArthaOS
 > `local_document_confirmation` and an opaque UUID evidence reference. The document
 > tables below describe legacy/target server-upload support; that path is disabled and
 > is not called by the frontend.
+>
+> **Current verified-memory periods:** `financial.financial_facts` stores a
+> server-validated `period_kind` and `period_start`. Income, expenses and monthly debt
+> payments may have one verified value per calendar month. Other fact types maintain
+> one current verified snapshot while replaced snapshots remain in history. The
+> `observed_at` timestamp continues to describe evidence provenance rather than the
+> financial period itself.
 
 ## Database Choice: PostgreSQL 15+
 
