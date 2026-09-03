@@ -2,18 +2,82 @@ import { expect, test, type Page } from '@playwright/test';
 
 const conversationId = '11111111-1111-4111-8111-111111111111';
 
-async function mockAuthenticatedShell(page: Page) {
+function financialFact(factType: string, value: string, verificationStatus = 'verified') {
+  return {
+    fact_id: `${factType}-fact`, fact_type: factType, value, unit: 'INR', source_type: 'user_statement',
+    verification_status: verificationStatus, observed_at: '2026-09-01T00:00:00Z', verified_at: '2026-09-01T00:00:00Z',
+  };
+}
+
+async function mockAuthenticatedShell(page: Page, facts: ReturnType<typeof financialFact>[] = []) {
   await page.route('**/api/auth/token', route => route.fulfill({
     status: 200, contentType: 'application/json',
     body: JSON.stringify({ access_token: 'browser-test-token' }),
   }));
-  await page.route('**/api/v1/agent/financial-facts', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/v1/agent/financial-facts', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(facts) }));
   await page.route('**/api/v1/agent/reviews', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route('**/api/v1/agent/conversations', route => route.fulfill({
     status: 201, contentType: 'application/json',
     body: JSON.stringify({ conversation_id: conversationId }),
   }));
 }
+
+test('incomplete financial setup shows verified-only progress and selects the first missing field', async ({ page }) => {
+  await mockAuthenticatedShell(page, [
+    financialFact('monthly_income', '85000'),
+    financialFact('monthly_expenses', '40000', 'unverified'),
+    financialFact('total_assets', '1250000', 'conflict'),
+  ]);
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'Welcome to Artha' })).toBeVisible();
+  await expect(page.getByText('1 of 4 basics added')).toBeVisible();
+  await expect(page.getByText('Document review is available in the supported desktop app.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review on this device' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add your details' }).click();
+  await expect(page.locator('.memory-field.requested-field')).toContainText('Monthly expenses');
+});
+
+test('Financial Memory groups dated values and confirms a reviewed batch', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  let candidatePayload: Record<string, unknown> | undefined;
+  let decisionPayload: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/agent/financial-facts/batch', route => {
+    candidatePayload = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify([
+      financialFact('monthly_income', '85000', 'unverified'), financialFact('monthly_expenses', '40000', 'unverified'),
+    ]) });
+  });
+  await page.route('**/api/v1/agent/financial-facts/batch/decision', route => {
+    decisionPayload = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+  await signIn(page);
+  await page.getByRole('button', { name: 'Financial memory' }).click();
+  await expect(page.getByRole('heading', { name: 'Financial Memory' })).toBeVisible();
+  await page.locator('#memory-monthly_income').fill('85000');
+  await page.locator('#memory-monthly_expenses').fill('40000');
+  await page.getByRole('button', { name: 'Review 2 changes' }).click();
+  await page.getByLabel('I confirm these values, dates, and periods are mine and correct.').check();
+  await page.getByRole('button', { name: 'Confirm values' }).click();
+  await expect(page.getByRole('status')).toContainText('2 values were confirmed');
+  expect((candidatePayload?.facts as unknown[])).toHaveLength(2);
+  expect(decisionPayload?.decision).toBe('confirm');
+});
+
+test('four verified basics including zero debt show the guided dashboard and accessible explanations', async ({ page }) => {
+  await mockAuthenticatedShell(page, [
+    financialFact('monthly_income', '85000'), financialFact('monthly_expenses', '40000'),
+    financialFact('total_assets', '1250000'), financialFact('total_liabilities', '0'),
+  ]);
+  await signIn(page);
+  await expect(page.getByRole('heading', { name: 'What do I have?' })).toBeVisible();
+  await expect(page.getByText('Welcome to Artha')).toHaveCount(0);
+  const explainIncome = page.getByRole('button', { name: 'Explain Monthly income' });
+  await explainIncome.focus();
+  await expect(page.getByRole('tooltip').filter({ hasText: 'money you receive' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tooltip').filter({ hasText: 'money you receive' })).not.toBeVisible();
+});
 
 test('browser host never uploads local financial documents', async ({ page }) => {
   await mockAuthenticatedShell(page);
@@ -30,36 +94,67 @@ test('browser host never uploads local financial documents', async ({ page }) =>
   expect(documentRequests).toBe(0);
 });
 
-test('cloud assistance requires explicit per-conversation consent and explains its boundary', async ({ page }) => {
+test('registration UI requires a strong password and does not expose verification secrets', async ({ page }) => {
+  await page.route('**/api/auth/register', route => route.fulfill({
+    status: 202,
+    contentType: 'application/json',
+    body: JSON.stringify({ detail: 'Check your email for a verification link before signing in.' }),
+  }));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Create an account' }).click();
+  await page.getByLabel('Name (optional)').fill('Test User');
+  await page.getByLabel('Email').fill('test@example.com');
+  await page.getByLabel('Password').fill('LongerSecurePassword123');
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByRole('status')).toContainText('Check your email for a verification link');
+  await expect(page.getByText('LongerSecurePassword123')).not.toBeVisible();
+});
+
+test('MFA sign-in requires an authenticator code before financial data loads', async ({ page }) => {
+  await page.route('**/api/auth/token', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ mfa_required: true, mfa_enrollment_required: false, mfa_challenge_token: 'challenge-token-for-browser-test' }),
+  }));
+  await page.route('**/api/auth/mfa/verify', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ access_token: 'mfa-browser-test-token', refresh_token: 'refresh-browser-test-token' }),
+  }));
+  await page.route('**/api/v1/agent/financial-facts', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/v1/agent/reviews', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+
+  await page.goto('/');
+  await page.getByLabel('Email').fill('test@example.com');
+  await page.getByLabel('Password').fill('LongerSecurePassword123');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+  await expect(page.getByRole('heading', { name: 'Secure your sign-in' })).toBeVisible();
+  await expect(page.getByLabel('Authenticator code')).toBeVisible();
+  await page.getByLabel('Authenticator code').fill('123456');
+  await page.getByRole('button', { name: 'Verify and sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Financial Freedom Agent' })).toBeVisible();
+});
+
+test('Ask Artha starts as simple chat and requests advanced details only when needed', async ({ page }) => {
   await mockAuthenticatedShell(page);
-  let consentPayload: Record<string, unknown> | undefined;
-  await page.route(`**/api/v1/agent/conversations/${conversationId}/cloud-assistance`, route => {
-    if (route.request().method() === 'POST') {
-      consentPayload = route.request().postDataJSON() as Record<string, unknown>;
-    }
-    return route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        consent_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        status: 'active',
-        provider: 'OpenAI',
-        purpose: 'Plain-language explanation of deterministic financial evidence',
-        policy_bundle_version: 'cloud-explanation-v1',
-        data_categories: ['agent_intent', 'verified_financial_facts', 'deterministic_calculation_evidence'],
-        excluded_categories: ['original_documents', 'document_text', 'file_paths', 'user_identifiers', 'unverified_facts', 'raw_user_message'],
-        retention_url: 'https://platform.openai.com/docs/models/default-usage-policies-by-endpoint',
-      }),
-    });
-  });
+  await page.route(`**/api/v1/agent/conversations/${conversationId}/messages`, route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({
+      message_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', role: 'assistant',
+      content: 'I need a few details from you before I can calculate that.', created_at: new Date().toISOString(),
+      blocks: [{ type: 'missing_data', fields: ['current age', 'target age', 'current monthly lifestyle expenses'] }],
+    }),
+  }));
 
   await signIn(page);
   await page.getByRole('navigation').getByRole('button', { name: 'Ask Artha' }).click();
-  await expect(page.getByRole('heading', { name: 'Cloud-assisted explanations' })).toBeVisible();
-  await expect(page.getByText('It never receives original documents, extracted text, file paths, identifiers, unverified facts, or your raw message.')).toBeVisible();
-  await page.getByRole('button', { name: 'Enable cloud assistance' }).click();
-  await expect(page.getByText('Enabled for this conversation')).toBeVisible();
-  expect(consentPayload).toEqual({ privacy_notice_version: 'render-singapore-pilot-v1' });
+  await expect(page.getByText('Add confirmed freedom scenario inputs')).toHaveCount(0);
+  await expect(page.getByText('Cloud-assisted explanations')).toHaveCount(0);
+  await expect(page.getByText('Optional insurance coverage comparison')).toHaveCount(0);
+  await page.getByLabel('Ask about your finances').fill('Can I retire at 55?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('I need a little more information')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tell me about the future you want to plan for' })).toBeVisible();
 });
 
 async function signIn(page: Page) {

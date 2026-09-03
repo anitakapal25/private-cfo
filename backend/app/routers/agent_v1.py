@@ -1,6 +1,6 @@
 """Typed, authenticated API for the financial-freedom agent."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import hashlib
 import json
@@ -19,7 +19,7 @@ from app.models.user import User
 from app.services.agent_orchestrator import AgentOrchestrator, audit_agent_run
 from app.services.financial_freedom import FreedomProjectionInputs
 from app.services.ecosystem_capabilities import get_ecosystem_capabilities
-from app.services.financial_context import ALLOWED_FACT_TYPES, FinancialContextService
+from app.services.financial_context import ALLOWED_FACT_TYPES, MONTHLY_FACT_TYPES, FinancialContextService
 from app.services.recommendation_planner import CandidateAction, rank_actions
 from app.services.proactive_reviews import persist_reviews
 from app.guardrails.data_redaction import redact_sensitive
@@ -151,11 +151,13 @@ def minimized_model_request(db: Session, user_id: UUID, intent: str, blocks: lis
         FinancialFact.user_id == user_id,
         FinancialFact.verification_status == "verified",
         FinancialFact.fact_type.in_(allowed_fact_types),
-    ).all()
-    verified_context = {
-        fact.fact_type: {"value": str(fact.value), "unit": fact.unit}
-        for fact in facts
-    }
+    ).order_by(FinancialFact.period_start.desc(), FinancialFact.observed_at.desc()).all()
+    verified_context = {}
+    for fact in facts:
+        verified_context.setdefault(fact.fact_type, {
+            "value": str(fact.value), "unit": fact.unit,
+            "period_kind": fact.period_kind, "period_start": fact.period_start.isoformat(),
+        })
     evidence = [
         {
             "type": block["type"],
@@ -205,6 +207,8 @@ class CreateFinancialFactRequest(BaseModel):
     source_type: Literal["user_statement", "manual_record", "imported_record", "local_document_confirmation"] = "user_statement"
     source_id: str | None = Field(default=None, max_length=120)
     observed_at: datetime
+    period_kind: Literal["monthly", "as_of"] | None = None
+    period_start: date | None = None
     confidence: Decimal | None = Field(default=None, ge=0, le=1, max_digits=5, decimal_places=4)
 
     @model_validator(mode="after")
@@ -218,6 +222,19 @@ class CreateFinancialFactRequest(BaseModel):
                 UUID(self.source_id)
             except ValueError as exc:
                 raise ValueError("Local document confirmation requires a valid opaque evidence identifier") from exc
+        expected_kind = "monthly" if self.fact_type in MONTHLY_FACT_TYPES else "as_of"
+        if self.period_kind is not None and self.period_kind != expected_kind:
+            raise ValueError(f"{self.fact_type} requires {expected_kind} period semantics")
+        self.period_kind = expected_kind
+        if self.period_start is None:
+            observed_date = self.observed_at.date()
+            self.period_start = observed_date.replace(day=1) if expected_kind == "monthly" else observed_date
+        if expected_kind == "monthly" and self.period_start.day != 1:
+            raise ValueError("Monthly periods must use the first day of the month")
+        local_date_tolerance = datetime.now(timezone.utc).date() + timedelta(days=1)
+        latest_allowed = local_date_tolerance.replace(day=1) if expected_kind == "monthly" else local_date_tolerance
+        if self.period_start > latest_allowed:
+            raise ValueError("Financial fact period cannot be in the future")
         return self
 
 
@@ -231,6 +248,8 @@ class FinancialFactResponse(BaseModel):
     source_id: str | None
     verification_status: str
     confidence: Decimal | None
+    period_kind: Literal["monthly", "as_of"]
+    period_start: date
     observed_at: datetime
     verified_at: datetime | None
     supersedes_fact_id: UUID | None
@@ -238,6 +257,28 @@ class FinancialFactResponse(BaseModel):
 
 class FactDecisionRequest(BaseModel):
     decision: Literal["confirm", "reject"]
+
+
+class CreateFinancialFactBatchRequest(BaseModel):
+    facts: list[CreateFinancialFactRequest] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def reject_duplicate_periods(self):
+        keys = [(item.fact_type, item.period_start) for item in self.facts]
+        if len(keys) != len(set(keys)):
+            raise ValueError("A batch cannot contain duplicate field and period entries")
+        return self
+
+
+class FactBatchDecisionRequest(BaseModel):
+    fact_ids: list[UUID] = Field(min_length=1, max_length=10)
+    decision: Literal["confirm", "reject"]
+
+    @model_validator(mode="after")
+    def reject_duplicate_ids(self):
+        if len(self.fact_ids) != len(set(self.fact_ids)):
+            raise ValueError("Duplicate financial fact identifiers are not allowed")
+        return self
 
 
 class CandidateActionRequest(BaseModel):
@@ -328,7 +369,7 @@ def list_financial_facts(
 ):
     return db.query(FinancialFact).filter(
         FinancialFact.user_id == current_user.user_id
-    ).order_by(FinancialFact.created_at.desc()).all()
+    ).order_by(FinancialFact.period_start.desc(), FinancialFact.created_at.desc()).all()
 
 
 @router.post("/financial-facts", response_model=FinancialFactResponse, status_code=201)
@@ -337,10 +378,51 @@ def create_financial_fact_candidate(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    fact = FinancialContextService(db, current_user.user_id).create_candidate(**payload.model_dump())
+    try:
+        fact = FinancialContextService(db, current_user.user_id).create_candidate(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.commit()
     db.refresh(fact)
     return fact
+
+
+@router.post("/financial-facts/batch", response_model=list[FinancialFactResponse], status_code=201)
+def create_financial_fact_candidates_batch(
+    payload: CreateFinancialFactBatchRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    service = FinancialContextService(db, current_user.user_id)
+    try:
+        facts = [service.create_candidate(**item.model_dump()) for item in payload.facts]
+        db.commit()
+        for fact in facts:
+            db.refresh(fact)
+        return facts
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/financial-facts/batch/decision", response_model=list[FinancialFactResponse])
+def decide_financial_facts_batch(
+    payload: FactBatchDecisionRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        facts = FinancialContextService(db, current_user.user_id).decide_many(payload.fact_ids, payload.decision)
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    db.commit()
+    for fact in facts:
+        db.refresh(fact)
+    return facts
 
 
 @router.post("/financial-facts/{fact_id}/decision", response_model=FinancialFactResponse)

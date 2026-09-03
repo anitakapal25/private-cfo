@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -19,10 +19,13 @@ NOW = datetime(2026, 8, 30, tzinfo=timezone.utc)
 
 
 def fact(kind: str, value: str, status: str, observed_at: datetime) -> FinancialFact:
+    monthly = kind in {"monthly_income", "monthly_expenses", "monthly_debt_payments"}
     return FinancialFact(
         fact_id=uuid4(), user_id=uuid4(), fact_type=kind, value=Decimal(value),
         unit="INR", source_type="user_statement", verification_status=status,
         observed_at=observed_at, created_at=observed_at,
+        period_kind="monthly" if monthly else "as_of",
+        period_start=observed_at.date().replace(day=1) if monthly else observed_at.date(),
     )
 
 
@@ -37,6 +40,31 @@ def test_context_uses_only_latest_confirmed_facts_for_requested_scope():
     )
 
     assert selected == {"monthly_income": new}
+
+
+def test_context_never_combines_monthly_values_from_different_periods():
+    august_income = fact("monthly_income", "100", "verified", datetime(2026, 8, 10, tzinfo=timezone.utc))
+    august_expenses = fact("monthly_expenses", "60", "verified", datetime(2026, 8, 20, tzinfo=timezone.utc))
+    september_income = fact("monthly_income", "120", "verified", datetime(2026, 9, 1, tzinfo=timezone.utc))
+
+    selected = select_verified_facts(
+        [august_income, august_expenses, september_income],
+        ("monthly_income", "monthly_expenses"), datetime(2026, 9, 2, tzinfo=timezone.utc),
+    )
+
+    assert selected == {"monthly_income": september_income}
+    assert september_income.period_start == date(2026, 9, 1)
+
+
+def test_calendar_period_at_positive_timezone_month_boundary_is_eligible():
+    income = fact("monthly_income", "100", "verified", datetime(2026, 8, 31, 19, tzinfo=timezone.utc))
+    income.period_start = date(2026, 9, 1)
+
+    selected = select_verified_facts(
+        [income], ("monthly_income",), datetime(2026, 8, 31, 20, tzinfo=timezone.utc),
+    )
+
+    assert selected == {"monthly_income": income}
 
 
 def test_confirming_conflict_supersedes_previous_fact_explicitly():

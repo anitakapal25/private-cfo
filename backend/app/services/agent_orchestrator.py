@@ -249,7 +249,7 @@ class AgentOrchestrator:
         authorize_tool("calculate_net_worth", Intent.NET_WORTH.value)
         context = FinancialContextService(self.db, self.user_id).assemble("net_worth")
         if context.missing:
-            return self._missing(Intent.NET_WORTH, list(context.missing))
+            return self._missing(Intent.NET_WORTH, list(context.missing), context.period_start)
         result = calculate_net_worth(Decimal(context.facts["total_assets"].value), Decimal(context.facts["total_liabilities"].value))
         record = self._record_calculation("net_worth", result, context=context)
         return AgentAnswer(
@@ -264,7 +264,7 @@ class AgentOrchestrator:
         authorize_tool("calculate_monthly_surplus", Intent.CASH_FLOW.value)
         context = FinancialContextService(self.db, self.user_id).assemble("cash_flow")
         if context.missing:
-            return self._missing(Intent.CASH_FLOW, list(context.missing))
+            return self._missing(Intent.CASH_FLOW, list(context.missing), context.period_start)
         result = calculate_cash_flow(Decimal(context.facts["monthly_income"].value), Decimal(context.facts["monthly_expenses"].value))
         record = self._record_calculation("cash_flow", result, context=context)
         return AgentAnswer(
@@ -325,18 +325,23 @@ class AgentOrchestrator:
             calculation_id=str(record.calculation_id),
         )
 
-    def _missing(self, intent: Intent, fields: list[str]) -> AgentAnswer:
+    def _missing(self, intent: Intent, fields: list[str], period_start=None) -> AgentAnswer:
+        period_note = period_start.strftime("%B %Y") if period_start else None
         return AgentAnswer(
             intent=intent,
-            narrative="I do not have enough verified information to calculate this without inventing financial facts.",
-            blocks=[{"type": "missing_data", "fields": fields}],
+            narrative=(
+                f"I need matching confirmed information for {period_note} before I can calculate this without guessing."
+                if period_note else
+                "I do not have enough verified information to calculate this without inventing financial facts."
+            ),
+            blocks=[{"type": "missing_data", "fields": fields, "period_start": period_start.isoformat() if period_start else None}],
         )
 
     def _debt_analysis(self) -> AgentAnswer:
         authorize_tool("calculate_debt_metrics", Intent.DEBT_ANALYSIS.value)
         context = FinancialContextService(self.db, self.user_id).assemble("debt")
         if context.missing:
-            return self._missing(Intent.DEBT_ANALYSIS, list(context.missing))
+            return self._missing(Intent.DEBT_ANALYSIS, list(context.missing), context.period_start)
         result = calculate_verified_debt_metrics(*(Decimal(context.facts[key].value) for key in ("monthly_income", "monthly_debt_payments", "debt_outstanding")))
         return self._planning_answer(Intent.DEBT_ANALYSIS, "calculate_debt_metrics", "debt_metrics", result, "Here are your debt metrics based only on confirmed facts.", context=context)
 
@@ -344,7 +349,7 @@ class AgentOrchestrator:
         authorize_tool("forecast_cash_flow", Intent.CASH_FLOW_FORECAST.value)
         context = FinancialContextService(self.db, self.user_id).assemble("cash_flow")
         if context.missing:
-            return self._missing(Intent.CASH_FLOW_FORECAST, list(context.missing))
+            return self._missing(Intent.CASH_FLOW_FORECAST, list(context.missing), context.period_start)
         result = forecast_flat_cash_flow(Decimal(context.facts["monthly_income"].value), Decimal(context.facts["monthly_expenses"].value))
         return self._planning_answer(Intent.CASH_FLOW_FORECAST, "forecast_cash_flow", "cash_flow_forecast", result, "This 12-month cash-flow scenario holds confirmed monthly amounts constant.", context=context)
 
@@ -352,7 +357,7 @@ class AgentOrchestrator:
         authorize_tool("get_goal_progress", Intent.GOAL_PROGRESS.value)
         context = FinancialContextService(self.db, self.user_id).assemble("goal")
         if context.missing:
-            return self._missing(Intent.GOAL_PROGRESS, list(context.missing))
+            return self._missing(Intent.GOAL_PROGRESS, list(context.missing), context.period_start)
         result = calculate_goal_progress(Decimal(context.facts["goal_current"].value), Decimal(context.facts["goal_target"].value))
         return self._planning_answer(Intent.GOAL_PROGRESS, "get_goal_progress", "goal_progress", result, "Here is the progress calculated from your confirmed goal facts.", context=context)
 
@@ -362,7 +367,7 @@ class AgentOrchestrator:
         authorize_tool("calculate_coverage_gap", Intent.INSURANCE_GAP.value)
         context = FinancialContextService(self.db, self.user_id).assemble("insurance")
         if context.missing:
-            return self._missing(Intent.INSURANCE_GAP, list(context.missing))
+            return self._missing(Intent.INSURANCE_GAP, list(context.missing), context.period_start)
         result = calculate_coverage_gap(Decimal(context.facts["insurance_coverage"].value), coverage_target)
         return self._planning_answer(Intent.INSURANCE_GAP, "calculate_coverage_gap", "insurance_coverage_gap", result, "This compares confirmed coverage with the target you selected; it does not recommend a product or coverage level.", context=context)
 
@@ -370,7 +375,7 @@ class AgentOrchestrator:
         authorize_tool("calculate_emergency_fund_coverage", Intent.EMERGENCY_FUND.value)
         context = FinancialContextService(self.db, self.user_id).assemble("emergency_fund")
         if context.missing:
-            return self._missing(Intent.EMERGENCY_FUND, list(context.missing))
+            return self._missing(Intent.EMERGENCY_FUND, list(context.missing), context.period_start)
         result = calculate_emergency_fund_coverage(Decimal(context.facts["liquid_assets"].value), Decimal(context.facts["monthly_expenses"].value))
         return self._planning_answer(Intent.EMERGENCY_FUND, "calculate_emergency_fund_coverage", "emergency_fund_coverage", result, "This is your emergency-reserve coverage based on confirmed liquid assets and monthly expenses.", context=context)
 

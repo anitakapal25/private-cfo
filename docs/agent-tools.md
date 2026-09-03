@@ -1456,12 +1456,20 @@ Milestones 2 and 3 expose authenticated, server-user-bound memory operations:
 - `GET /api/v1/agent/financial-facts`
 - `POST /api/v1/agent/financial-facts` creates an unverified or conflict candidate
 - `POST /api/v1/agent/financial-facts/{fact_id}/decision` confirms or rejects it
+- `POST /api/v1/agent/financial-facts/batch` creates up to ten period-valid candidates atomically
+- `POST /api/v1/agent/financial-facts/batch/decision` confirms or rejects a user-owned batch atomically
 - `GET /api/v1/agent/financial-context/{scope}` returns only verified facts required by that scope
 
 Conversation summaries and unverified candidates are never authoritative inputs. A
 confirmed replacement records the prior fact through `supersedes_fact_id`; rejected
 values remain excluded. Calculation evidence includes fact IDs and provenance without
 placing unrestricted records or raw documents in model context.
+
+Income, expenses and monthly debt payments use explicit calendar months. Other facts
+use as-of dates. Calculations that need multiple monthly facts select one matching
+period and return that period with missing-field evidence rather than carrying an older
+value forward. Existing single-fact clients remain supported; omitted period fields are
+derived from the evidence observation time.
 
 Planning actions use `POST /api/v1/agent/planning/candidates` for deterministic impact
 comparison and `POST /api/v1/agent/planning/plans` for confirmed persistence. Plan

@@ -274,6 +274,23 @@ def test_local_document_fact_requires_only_an_opaque_evidence_reference():
         observed_at="2026-08-30T00:00:00Z", confidence="0.9000",
     )
     assert request.source_id == evidence_id
+    assert request.period_kind == "monthly"
+    assert request.period_start == date(2026, 8, 1)
+
+
+def test_financial_fact_period_semantics_are_server_validated():
+    with pytest.raises(ValueError, match="requires monthly"):
+        CreateFinancialFactRequest(
+            fact_type="monthly_income", value="1000.00", unit="INR",
+            source_type="user_statement", observed_at="2026-08-30T00:00:00Z",
+            period_kind="as_of", period_start="2026-08-30",
+        )
+    with pytest.raises(ValueError, match="first day"):
+        CreateFinancialFactRequest(
+            fact_type="monthly_expenses", value="500.00", unit="INR",
+            source_type="user_statement", observed_at="2026-08-30T00:00:00Z",
+            period_kind="monthly", period_start="2026-08-15",
+        )
 
 
 def test_expired_assumption_fails_closed():

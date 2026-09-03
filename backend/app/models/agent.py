@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Numeric, String, Text, text
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -102,11 +102,10 @@ class EvidenceSource(Base):
 class FinancialFact(Base):
     __tablename__ = "financial_facts"
     __table_args__ = (
-        Index(
-            "uq_financial_facts_verified_type",
-            "user_id", "fact_type", unique=True,
-            postgresql_where=text("verification_status = 'verified'"),
-        ),
+        Index("uq_financial_facts_verified_month", "user_id", "fact_type", "period_start", unique=True,
+              postgresql_where=text("verification_status = 'verified' AND period_kind = 'monthly'")),
+        Index("uq_financial_facts_verified_snapshot", "user_id", "fact_type", unique=True,
+              postgresql_where=text("verification_status = 'verified' AND period_kind = 'as_of'")),
         Index("ix_financial_facts_user_id", "user_id"),
         {"schema": "financial"},
     )
@@ -123,6 +122,8 @@ class FinancialFact(Base):
     confidence = Column(Numeric(5, 4))
     sensitivity_classification = Column(String(20), nullable=False, default="confidential")
     supersedes_fact_id = Column(UUID(as_uuid=True), ForeignKey("financial.financial_facts.fact_id"))
+    period_kind = Column(String(12), nullable=False)
+    period_start = Column(Date, nullable=False)
     observed_at = Column(DateTime(timezone=True), nullable=False)
     verified_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)

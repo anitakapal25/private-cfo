@@ -1,6 +1,7 @@
 export interface AgentBlock {
   type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation';
   fields?: string[];
+  period_start?: string;
   code?: string;
   calculation_id?: string;
   version?: string;
@@ -51,6 +52,8 @@ export interface FinancialFact {
   unit: string;
   source_type: string;
   verification_status: 'unverified' | 'conflict' | 'verified' | 'rejected' | 'superseded';
+  period_kind?: 'monthly' | 'as_of';
+  period_start?: string;
   observed_at: string;
   verified_at?: string;
 }
@@ -89,16 +92,68 @@ export class ApiError extends Error {
   }
 }
 
-export async function login(email: string, password: string): Promise<string> {
+export type AuthStart =
+  | { state: 'authenticated'; accessToken: string; refreshToken?: string }
+  | { state: 'email_verification_required' }
+  | { state: 'mfa_required'; challengeToken: string; enrollmentRequired: boolean };
+
+interface TokenPair {
+  access_token: string;
+  refresh_token?: string;
+}
+
+async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/auth${path}`, init);
+  const payload = await response.json().catch(() => ({})) as T & { detail?: unknown };
+  if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'The security request could not be completed.');
+  return payload;
+}
+
+export async function login(email: string, password: string): Promise<AuthStart> {
   const body = new URLSearchParams({ username: email, password });
-  const response = await fetch('/api/auth/token', {
+  const payload = await authRequest<TokenPair & { email_verification_required?: boolean; mfa_required?: boolean; mfa_enrollment_required?: boolean; mfa_challenge_token?: string }>('/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
-  if (!response.ok) throw new Error('The email or password is incorrect.');
-  const payload = await response.json() as { access_token: string };
-  return payload.access_token;
+  if (payload.access_token) return { state: 'authenticated', accessToken: payload.access_token, refreshToken: payload.refresh_token };
+  if (payload.email_verification_required) return { state: 'email_verification_required' };
+  if (payload.mfa_challenge_token) return { state: 'mfa_required', challengeToken: payload.mfa_challenge_token, enrollmentRequired: Boolean(payload.mfa_enrollment_required) };
+  throw new Error('The sign-in response was incomplete.');
+}
+
+export function register(email: string, password: string, fullName: string): Promise<{ detail: string }> {
+  return authRequest('/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, full_name: fullName || undefined }) });
+}
+
+export function verifyEmail(token: string): Promise<{ detail: string }> {
+  return authRequest('/verify-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+}
+
+export function requestPasswordReset(email: string): Promise<{ detail: string }> {
+  return authRequest('/password-reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+}
+
+export function confirmPasswordReset(token: string, password: string): Promise<{ detail: string }> {
+  return authRequest('/password-reset/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }) });
+}
+
+export function beginMfaEnrollment(challengeToken: string): Promise<{ secret: string; issuer: string; account_name: string }> {
+  return authRequest('/mfa/enrollment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge_token: challengeToken }) });
+}
+
+export async function confirmMfaEnrollment(challengeToken: string, code: string): Promise<AuthStart> {
+  const payload = await authRequest<TokenPair>('/mfa/enrollment/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge_token: challengeToken, code }) });
+  return { state: 'authenticated', accessToken: payload.access_token, refreshToken: payload.refresh_token };
+}
+
+export async function verifyMfa(challengeToken: string, code: string): Promise<AuthStart> {
+  const payload = await authRequest<TokenPair>('/mfa/verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ challenge_token: challengeToken, code }) });
+  return { state: 'authenticated', accessToken: payload.access_token, refreshToken: payload.refresh_token };
+}
+
+export async function logout(token: string): Promise<void> {
+  await authRequest('/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
 }
 
 async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -111,7 +166,7 @@ async function request<T>(path: string, token: string, init?: RequestInit): Prom
     const payload = await response.json().catch(() => ({})) as { detail?: unknown };
     const message = typeof payload.detail === 'string'
       ? payload.detail
-      : 'Check the scenario fields and try again.';
+      : 'The request could not be completed. Please try again.';
     throw new ApiError(message, response.status);
   }
   return response.json() as Promise<T>;
@@ -150,7 +205,7 @@ export function listFinancialFacts(token: string): Promise<FinancialFact[]> {
 
 export function createFinancialFact(
   token: string, factType: string, value: string,
-  options?: { sourceType?: 'user_statement' | 'local_document_confirmation'; sourceId?: string; confidence?: string },
+  options?: { sourceType?: 'user_statement' | 'local_document_confirmation'; sourceId?: string; confidence?: string; periodStart?: string },
 ): Promise<FinancialFact> {
   return request<FinancialFact>('/financial-facts', token, {
     method: 'POST',
@@ -161,8 +216,30 @@ export function createFinancialFact(
       source_type: options?.sourceType || 'user_statement',
       source_id: options?.sourceId,
       observed_at: new Date().toISOString(),
+      period_start: options?.periodStart,
       confidence: options?.confidence || '1',
     }),
+  });
+}
+
+export interface FinancialFactInput {
+  fact_type: string;
+  value: string;
+  unit: 'INR';
+  source_type: 'user_statement';
+  observed_at: string;
+  period_start: string;
+}
+
+export function createFinancialFactBatch(token: string, facts: FinancialFactInput[]): Promise<FinancialFact[]> {
+  return request<FinancialFact[]>('/financial-facts/batch', token, {
+    method: 'POST', body: JSON.stringify({ facts }),
+  });
+}
+
+export function decideFinancialFactBatch(token: string, factIds: string[], decision: 'confirm' | 'reject'): Promise<FinancialFact[]> {
+  return request<FinancialFact[]>('/financial-facts/batch/decision', token, {
+    method: 'POST', body: JSON.stringify({ fact_ids: factIds, decision }),
   });
 }
 

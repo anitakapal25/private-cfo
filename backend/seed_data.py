@@ -17,7 +17,7 @@ def create_test_data():
         users_to_create = [
             {
                 "email": "test@example.com",
-                "password": "testpassword123",
+                "password": "Testpassword123",
                 "role": "user",
                 "profile": {
                     "full_name": "Test User",
@@ -46,7 +46,7 @@ def create_test_data():
             },
             {
                 "email": "advisor@example.com",
-                "password": "advisorpassword123",
+                "password": "Advisorpassword123",
                 "role": "advisor",
                 "profile": {
                     "full_name": "Financial Advisor",
@@ -75,7 +75,7 @@ def create_test_data():
             },
             {
                 "email": "admin@example.com",
-                "password": "adminpassword123",
+                "password": "Adminpassword123",
                 "role": "admin",
                 "profile": {
                     "full_name": "System Administrator",
@@ -117,6 +117,9 @@ def create_test_data():
                 user.hashed_password = get_password_hash(user_spec["password"])
                 user.role = user_spec["role"]
                 user.is_active = True
+                user.failed_login_count = 0
+                user.lockout_count = 0
+                user.lockout_until = None
                 user.last_login = datetime.now(timezone.utc)
                 # Update profile
                 for key, value in user_spec["profile"].items():

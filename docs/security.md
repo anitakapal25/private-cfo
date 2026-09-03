@@ -4,10 +4,11 @@
 **Last reviewed:** 2026-08-30
 
 This document describes required controls, not completed controls. Current safeguards
-include authenticated agent routes, validated environment settings, fail-closed Fernet
+include authenticated agent routes, Argon2id passwords, TOTP MFA, server-side session
+revocation, hashed rate-limit records, validated environment settings, fail-closed Fernet
 encryption for sensitive operations, desktop-local document scanning/extraction and
 external webhooks disabled by default. Major gaps include managed key rotation for
-server secrets, MFA, token revocation, rate limiting, immutable audit logs,
+server secrets, SMTP/operational delivery evidence, immutable audit logs,
 retention/deletion automation and production infrastructure evidence. The system must
 not process real financial documents in production until package signing, scanner
 maintenance and independent operational review gates close.

@@ -8,17 +8,18 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from app.core.config import Settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Render and other deployment environments provide DATABASE_URL at runtime.  The
-# checked-in alembic.ini URL is intentionally only a local-development fallback;
-# migrations must never silently target it in a production/pilot deploy.
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Use the same validated configuration source as the application. This loads the
+# repository .env for local development while still giving real environment
+# variables precedence in deployment. Escape percent signs for ConfigParser so
+# URL-encoded credentials remain intact.
+database_url = Settings().database_url
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
