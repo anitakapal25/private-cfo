@@ -11,6 +11,7 @@ from app.services.financial_engine import (
     calculate_debt_metrics,
     calculate_emergency_fund_coverage,
     calculate_goal_projection,
+    calculate_monthly_money_left,
     calculate_net_worth,
 )
 
@@ -99,6 +100,17 @@ def test_financial_foundation_golden_examples():
     assert calculate_emergency_fund_coverage(Decimal("300"), Decimal("100"))["coverage_months"] == "3.00"
     assert calculate_debt_metrics(Decimal("100"), Decimal("25"), Decimal("500"))["debt_to_income_ratio"] == "0.2500"
     assert calculate_goal_projection(Decimal("100"), Decimal("500"), Decimal("20"), 12, Decimal("0"))["projected_amount"]["amount"] == "340.00"
+    assert calculate_monthly_money_left(Decimal("100"), Decimal("60"), Decimal("15"))["money_left"]["amount"] == "25.00"
+
+
+@pytest.mark.parametrize(("income", "expenses", "payments", "expected"), [
+    ("100", "60", "40", "0.00"),
+    ("100", "80", "30", "-10.00"),
+    ("0.005", "0", "0", "0.01"),
+])
+def test_monthly_money_left_is_deterministic_and_allows_nonpositive_results(income, expenses, payments, expected):
+    result = calculate_monthly_money_left(Decimal(income), Decimal(expenses), Decimal(payments))
+    assert result["money_left"] == {"amount": expected, "currency": "INR"}
 
 
 @pytest.mark.parametrize("function,args", [
@@ -106,6 +118,7 @@ def test_financial_foundation_golden_examples():
     (calculate_cash_flow, (Decimal("1"), Decimal("-1"))),
     (calculate_emergency_fund_coverage, (Decimal("-1"), Decimal("1"))),
     (calculate_debt_metrics, (Decimal("1"), Decimal("-1"), Decimal("0"))),
+    (calculate_monthly_money_left, (Decimal("1"), Decimal("0"), Decimal("-1"))),
 ])
 def test_financial_foundation_rejects_negative_inputs(function, args):
     with pytest.raises(ValueError):

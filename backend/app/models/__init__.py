@@ -1,5 +1,6 @@
 from .agent import (  # noqa: F401
     AgentRun,
+    ActionCheckIn,
     ActionPlan,
     AuditEvent,
     CalculationRecord,

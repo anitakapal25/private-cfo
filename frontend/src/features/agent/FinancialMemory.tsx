@@ -1,94 +1,77 @@
-import React, { FormEvent, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
-import InfoTooltip from '@/components/ui/InfoTooltip';
-import { Check, ChevronDown, Clock3, ShieldCheck } from 'lucide-react';
-import { createFinancialFactBatch, decideFinancialFact, decideFinancialFactBatch, type FinancialFact, type FinancialFactInput } from './api';
-
-type PeriodKind = 'monthly' | 'as_of';
-
-interface FieldDefinition {
-  type: string;
-  label: string;
-  explanation: string;
-  example: string;
-  periodKind: PeriodKind;
-}
-
-const groups: Array<{ title: string; description: string; fields: FieldDefinition[] }> = [
-  { title: 'Monthly money', description: 'Enter what actually happened in the selected calendar month.', fields: [
-    { type: 'monthly_income', label: 'Monthly income', explanation: 'Money you received during this month after deductions. Include salary and other income received.', example: '₹50,000 received in September 2026.', periodKind: 'monthly' },
-    { type: 'monthly_expenses', label: 'Monthly expenses', explanation: 'Money you spent during this month, including bills, food, rent, travel, and other spending.', example: '₹30,000 spent in September 2026.', periodKind: 'monthly' },
-    { type: 'monthly_debt_payments', label: 'Monthly loan payments', explanation: 'The total loan and EMI payments you made during this month.', example: '₹12,000 paid toward a home and vehicle loan.', periodKind: 'monthly' },
-  ] },
-  { title: 'What you own and owe', description: 'These are snapshots of your position on the selected date.', fields: [
-    { type: 'total_assets', label: 'Total assets', explanation: 'The combined value of everything valuable you own on this date.', example: '₹8,00,000 across savings, investments, gold, and property.', periodKind: 'as_of' },
-    { type: 'liquid_assets', label: 'Money available quickly', explanation: 'Money you could access quickly, such as cash and bank savings.', example: '₹75,000 in cash and savings accounts.', periodKind: 'as_of' },
-    { type: 'total_liabilities', label: 'Total debt', explanation: 'All money you owe on this date, including loans and unpaid credit-card balances.', example: '₹4,00,000 still owed across all loans.', periodKind: 'as_of' },
-    { type: 'debt_outstanding', label: 'Loan balance', explanation: 'The amount still unpaid on the loans you want Artha to analyse.', example: '₹2,50,000 remaining on a vehicle loan.', periodKind: 'as_of' },
-  ] },
-  { title: 'Goals and protection', description: 'Add current amounts as of the selected date.', fields: [
-    { type: 'goal_current', label: 'Amount saved toward your goal', explanation: 'The amount already set aside for a financial goal.', example: '₹2,00,000 already saved for education.', periodKind: 'as_of' },
-    { type: 'goal_target', label: 'Your goal amount', explanation: 'The total amount you chose for your goal. Artha does not choose this target for you.', example: 'A user-selected education goal of ₹10,00,000.', periodKind: 'as_of' },
-    { type: 'insurance_coverage', label: 'Current insurance cover', explanation: 'The sum assured shown by your existing insurance policy.', example: '₹25,00,000 of current life cover.', periodKind: 'as_of' },
-  ] },
-];
-
-const allFields = groups.flatMap(group => group.fields);
-const statusLabels: Record<string, string> = {
-  verified: 'Confirmed', unverified: 'Waiting for confirmation', conflict: 'Waiting for confirmation',
-  superseded: 'Replaced', rejected: 'Rejected',
-};
+import { ArrowRight, Calculator, CircleAlert, Clock3, Database, Lightbulb, ShieldCheck } from 'lucide-react';
+import { createFinancialFactBatch, decideFinancialFact, decideFinancialFactBatch, getFinancialMemoryMonthlySummary, type FinancialFact, type FinancialFactInput, type FinancialMemoryMonthlySummary } from './api';
+import type { SessionDocument } from './desktop';
+import MemoryValueCard from './memory/MemoryValueCard';
+import { allMemoryFields, coreMemoryFields, formatMoney, formatPeriod, memoryGroups, periodFor, type FieldDefinition } from './memory/model';
 
 function localDateParts() {
   const now = new Date();
-  const year = String(now.getFullYear());
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return { year, month, day };
+  return { year: String(now.getFullYear()), month: String(now.getMonth() + 1).padStart(2, '0'), day: String(now.getDate()).padStart(2, '0') };
 }
 function today() { const value = localDateParts(); return `${value.year}-${value.month}-${value.day}`; }
 function currentMonth() { const value = localDateParts(); return `${value.year}-${value.month}`; }
-function periodFor(fact: FinancialFact, definition: FieldDefinition) {
-  return fact.period_start || (definition.periodKind === 'monthly' ? fact.observed_at.slice(0, 7) + '-01' : fact.observed_at.slice(0, 10));
-}
-function formatPeriod(value: string, kind: PeriodKind) {
-  const parsed = new Date(`${value}T00:00:00`);
-  return new Intl.DateTimeFormat('en-IN', kind === 'monthly' ? { month: 'long', year: 'numeric' } : { day: 'numeric', month: 'short', year: 'numeric' }).format(parsed);
-}
-function formatMoney(value: string) {
-  return `₹${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Number(value))}`;
-}
 
 interface FinancialMemoryProps {
   token: string;
   facts: FinancialFact[];
+  documents: SessionDocument[];
   initialField?: string;
   onFactsChanged: () => Promise<void>;
+  onAsk: (prompt: string) => void;
+  onOpenDocuments: () => void;
 }
 
-const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, initialField, onFactsChanged }) => {
+const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, documents, initialField, onFactsChanged, onAsk, onOpenDocuments }) => {
   const [month, setMonth] = useState(currentMonth());
   const [asOfDate, setAsOfDate] = useState(today());
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState<Set<string>>(() => initialField ? new Set([initialField]) : new Set());
   const [reviewing, setReviewing] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [monthlySummary, setMonthlySummary] = useState<FinancialMemoryMonthlySummary>();
+  const [monthlySummaryUnavailable, setMonthlySummaryUnavailable] = useState(false);
 
-  const histories = useMemo(() => Object.fromEntries(allFields.map(field => [field.type, facts
+  const histories = useMemo(() => Object.fromEntries(allMemoryFields.map(field => [field.type, facts
     .filter(fact => fact.fact_type === field.type)
     .sort((a, b) => periodFor(b, field).localeCompare(periodFor(a, field)) || b.observed_at.localeCompare(a.observed_at))])), [facts]);
-  const changedFields = allFields.filter(field => edits[field.type]?.trim());
 
-  const startReview = (event: FormEvent) => {
-    event.preventDefault();
-    if (!changedFields.length) { setError('Enter at least one value before reviewing.'); return; }
-    setError(''); setConfirmed(false); setReviewing(true);
+  const currentFor = (field: FieldDefinition) => (histories[field.type] as FinancialFact[]).find(fact =>
+    fact.verification_status === 'verified' && (field.periodKind === 'monthly' ? periodFor(fact, field) === `${month}-01` : periodFor(fact, field) <= asOfDate));
+  const pendingFor = (field: FieldDefinition) => (histories[field.type] as FinancialFact[]).find(fact =>
+    (fact.verification_status === 'unverified' || fact.verification_status === 'conflict') && (field.periodKind === 'monthly' ? periodFor(fact, field) === `${month}-01` : periodFor(fact, field) <= asOfDate));
+  const changedFields = allMemoryFields.filter(field => edits[field.type]?.trim() !== undefined && edits[field.type]?.trim() !== '');
+  const completed = coreMemoryFields.filter(field => currentFor(field)).length;
+  const confirmedRecords = facts.filter(fact => fact.verification_status === 'verified').length;
+  const reviewCount = facts.filter(fact => fact.verification_status === 'unverified' || fact.verification_status === 'conflict').length;
+  const missingCore = coreMemoryFields.filter(field => !currentFor(field) && !pendingFor(field));
+
+  useEffect(() => {
+    let current = true;
+    getFinancialMemoryMonthlySummary(token, month)
+      .then(result => { if (current) { setMonthlySummary(result); setMonthlySummaryUnavailable(false); } })
+      .catch(() => { if (current) setMonthlySummaryUnavailable(true); });
+    return () => { current = false; };
+  }, [token, month, facts]);
+
+  useEffect(() => {
+    if (!initialField || !allMemoryFields.some(field => field.type === initialField)) return;
+    requestAnimationFrame(() => document.querySelector(`#memory-card-${initialField}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }, [initialField]);
+
+  const startEdit = (type: string) => setEditing(current => new Set(current).add(type));
+  const cancelEdit = (type: string) => {
+    setEditing(current => { const next = new Set(current); next.delete(type); return next; });
+    setEdits(current => { const next = { ...current }; delete next[type]; return next; });
   };
+  const discardChanges = () => { setEdits({}); setEditing(new Set()); setReviewing(false); setConfirmed(false); };
 
   const saveChanges = async () => {
-    if (!confirmed || pending) return;
+    if (!confirmed || pending || !changedFields.length) return;
     setPending(true); setError(''); setMessage('');
     const observedAt = new Date().toISOString();
     const inputs: FinancialFactInput[] = changedFields.map(field => ({
@@ -98,8 +81,8 @@ const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, initial
     try {
       const candidates = await createFinancialFactBatch(token, inputs);
       await decideFinancialFactBatch(token, candidates.map(fact => fact.fact_id), 'confirm');
-      setEdits({}); setReviewing(false); setConfirmed(false);
-      setMessage(`${candidates.length} ${candidates.length === 1 ? 'value was' : 'values were'} confirmed.`);
+      discardChanges();
+      setMessage(`${candidates.length} ${candidates.length === 1 ? 'value was' : 'values were'} confirmed and added to Financial Memory.`);
       await onFactsChanged();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'The financial values could not be confirmed.');
@@ -109,33 +92,42 @@ const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, initial
 
   const decideExisting = async (factId: string, decision: 'confirm' | 'reject') => {
     setPending(true); setError('');
-    try { await decideFinancialFact(token, factId, decision); await onFactsChanged(); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'The decision could not be saved.'); }
+    try {
+      await decideFinancialFact(token, factId, decision);
+      setMessage(decision === 'confirm' ? 'The value is now confirmed in Financial Memory.' : 'The value was not added to Financial Memory.');
+      await onFactsChanged();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The decision could not be saved.'); }
     finally { setPending(false); }
   };
 
+  const addFirstMissing = () => {
+    const field = missingCore[0];
+    if (!field) return;
+    startEdit(field.type);
+    requestAnimationFrame(() => document.querySelector(`#memory-card-${field.type}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  };
+
   return <section className="financial-memory" aria-labelledby="financial-memory-title">
-    <header className="memory-heading"><div><p className="eyebrow">YOUR CONFIRMED INFORMATION</p><h2 id="financial-memory-title">Financial Memory</h2><p>Add dated values so Artha can answer without guessing. Monthly calculations only combine information from the same month.</p></div><span className="memory-security"><ShieldCheck/> Only confirmed values are used</span></header>
+    <header className="memory-heading"><div><p className="eyebrow">FINANCIAL MEMORY</p><h2 id="financial-memory-title">What Artha knows about you</h2><p>Only information you’ve confirmed is used to give personalized insights. Artha never fills financial gaps with assumptions.</p></div><span className="memory-security"><ShieldCheck/> Only confirmed values are used</span></header>
     {message && <div className="agent-success" role="status">{message}</div>}
     {error && <div className="agent-error" role="alert">{error}</div>}
-    {!reviewing ? <form onSubmit={startReview} className="memory-form">
-      <div className="period-controls"><label>Month for monthly values<input type="month" max={currentMonth()} value={month} onChange={event => setMonth(event.target.value)} required/></label><label>As-of date for snapshots<input type="date" max={today()} value={asOfDate} onChange={event => setAsOfDate(event.target.value)} required/></label></div>
-      {groups.map(group => <section className="memory-group" key={group.title}><div className="memory-group-heading"><h3>{group.title}</h3><p>{group.description}</p></div><div className="memory-fields">{group.fields.map(field => {
-        const history = histories[field.type] as FinancialFact[];
-        const latest = history.find(fact => fact.verification_status === 'verified');
-        return <article className={`memory-field ${field.type === initialField ? 'requested-field' : ''}`} key={field.type}>
-          <div className="memory-field-heading"><div><strong>{field.label}</strong><InfoTooltip term={field.label} explanation={field.explanation} example={field.example}/></div>{latest && <span className="memory-current"><Check/> {formatMoney(latest.value)} · {formatPeriod(periodFor(latest, field), field.periodKind)}</span>}</div>
-          <label htmlFor={`memory-${field.type}`}>{latest ? 'Enter an updated value' : 'Add value'} (₹)</label><input id={`memory-${field.type}`} type="number" min="0" step="0.01" placeholder={latest ? formatMoney(latest.value) : '0'} value={edits[field.type] || ''} onChange={event => setEdits(current => ({ ...current, [field.type]: event.target.value }))}/>
-          {history.length > 0 && <details className="memory-history"><summary>View history ({history.length}) <ChevronDown/></summary><ul>{history.map(fact => <li key={fact.fact_id}><span><strong>{formatMoney(fact.value)}</strong><small>{formatPeriod(periodFor(fact, field), field.periodKind)} · {statusLabels[fact.verification_status]}</small><small>{fact.source_type === 'local_document_confirmation' ? 'Confirmed from local document review' : 'Entered manually'} · observed {new Date(fact.observed_at).toLocaleDateString('en-IN')}{fact.verified_at ? ` · confirmed ${new Date(fact.verified_at).toLocaleDateString('en-IN')}` : ''}</small></span>{(fact.verification_status === 'unverified' || fact.verification_status === 'conflict') && <span className="history-actions"><button type="button" disabled={pending} onClick={() => void decideExisting(fact.fact_id, 'confirm')}>Confirm</button><button type="button" disabled={pending} onClick={() => void decideExisting(fact.fact_id, 'reject')}>Reject</button></span>}</li>)}</ul></details>}
-        </article>;
-      })}</div></section>)}
-      <div className="memory-submit"><Button disabled={!changedFields.length || pending}>Review {changedFields.length || ''} {changedFields.length === 1 ? 'change' : 'changes'}</Button><small>Nothing is used in calculations until you review and confirm it.</small></div>
-    </form> : <section className="memory-review" aria-labelledby="review-title"><p className="eyebrow">REVIEW BEFORE CONFIRMING</p><h3 id="review-title">Check these values and dates</h3><p>A confirmed replacement keeps the older value in history.</p><ul>{changedFields.map(field => {
-      const period = field.periodKind === 'monthly' ? `${month}-01` : asOfDate;
-      const replaces = (histories[field.type] as FinancialFact[]).find(fact => fact.verification_status === 'verified' && (field.periodKind === 'as_of' || periodFor(fact, field) === period));
-      return <li key={field.type}><span><strong>{field.label}</strong><small>{formatPeriod(period, field.periodKind)}</small></span><span><strong>{formatMoney(edits[field.type])}</strong>{replaces && <small>Replaces {formatMoney(replaces.value)} for this {field.periodKind === 'monthly' ? 'month' : 'field'}</small>}</span></li>;
-    })}</ul><label className="scenario-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)}/> I confirm these values, dates, and periods are mine and correct.</label><div className="memory-review-actions"><Button type="button" variant="secondary" disabled={pending} onClick={() => setReviewing(false)}>Back to edit</Button><Button type="button" disabled={!confirmed || pending} onClick={() => void saveChanges()}>{pending ? 'Confirming…' : 'Confirm values'}</Button></div></section>}
-    <footer className="memory-note"><Clock3/> Replaced values remain available in history and are never silently merged.</footer>
+
+    {!reviewing ? <>
+      <section className="memory-summary" aria-label="Financial Memory summary"><div><strong>{completed} / {coreMemoryFields.length}</strong><span>Key areas completed</span></div><div><strong>{confirmedRecords}</strong><span>Confirmed values</span></div><div className={reviewCount ? 'needs-review' : ''}><strong>{reviewCount}</strong><span>Need review</span></div></section>
+
+      {memoryGroups.map(group => {
+        if (group.id === 'documents' && !group.fields.some(field => (histories[field.type] as FinancialFact[]).length)) return null;
+        const isMonthly = group.id === 'monthly';
+        const summaryLoading = isMonthly && !monthlySummaryUnavailable && monthlySummary?.month !== month;
+        return <section className={`memory-section memory-section-${group.id}`} key={group.id} aria-labelledby={`memory-${group.id}-title`}><header className="memory-section-heading"><div><h3 id={`memory-${group.id}-title`}>{isMonthly ? `${group.title} · ${formatPeriod(`${month}-01`, 'monthly')}` : group.title}</h3><p>{group.description}</p></div>{group.id === 'monthly' ? <label>Choose month<input type="month" max={currentMonth()} value={month} onChange={event => setMonth(event.target.value)} /></label> : group.id === 'position' ? <label>Position on<input type="date" max={today()} value={asOfDate} onChange={event => setAsOfDate(event.target.value)} /></label> : null}</header><div className="memory-value-grid">{group.fields.map(field => <MemoryValueCard key={field.type} field={field} current={currentFor(field)} pendingFact={pendingFor(field)} history={histories[field.type] as FinancialFact[]} documents={documents} editing={editing.has(field.type)} editValue={edits[field.type] || ''} disabled={pending} requested={field.type === initialField} onStartEdit={() => startEdit(field.type)} onCancelEdit={() => cancelEdit(field.type)} onEditValue={value => setEdits(current => ({ ...current, [field.type]: value }))} onPendingDecision={(factId, decision) => void decideExisting(factId, decision)} onOpenDocuments={onOpenDocuments}/>)}</div>{isMonthly && <article className="money-left-card"><span className="calculated-icon"><Calculator/></span><div><span>Money left this month</span>{summaryLoading ? <strong>Calculating…</strong> : monthlySummary?.status === 'complete' && monthlySummary.money_left && !monthlySummaryUnavailable ? <strong>{formatMoney(monthlySummary.money_left.amount)}</strong> : <strong aria-label="Not enough confirmed information">—</strong>}<p>{monthlySummaryUnavailable ? 'Monthly calculation is temporarily unavailable. Your confirmed values are unchanged.' : monthlySummary?.status === 'complete' ? 'Income minus expenses and loan payments, using confirmed values for this month.' : `Will be calculated after you add ${monthlySummary?.missing.map(type => allMemoryFields.find(field => field.type === type)?.label.toLowerCase()).join(', ') || 'the required monthly values'}.`}</p></div>{monthlySummary?.status === 'complete' && !monthlySummaryUnavailable && <details><summary>Calculation evidence</summary><small>Calculation ID: {monthlySummary.calculation_id}</small><small>Version: {monthlySummary.version}</small><small>Calculated: {monthlySummary.timestamp ? new Date(monthlySummary.timestamp).toLocaleString('en-IN') : ''}</small></details>}</article>}</section>;
+      })}
+
+      <aside className="memory-missing-cta"><Lightbulb/><div><strong>{missingCore.length ? 'Add more information' : 'Your key areas are complete'}</strong><p>{missingCore.length ? 'Share only what you’re comfortable with. More confirmed information can help Artha give more relevant planning context.' : 'You can update any value when your situation changes.'}</p></div>{missingCore.length > 0 && <Button type="button" variant="secondary" onClick={addFirstMissing}>+ Add missing information</Button>}</aside>
+      <aside className="memory-ask-cta"><Database/><div><h3>Ask Artha about your finances</h3><p>Use your confirmed Financial Memory to ask questions in everyday language.</p><div className="memory-prompt-chips"><button type="button" onClick={() => onAsk('Show my monthly cash flow')}>Where does my money go?</button><button type="button" onClick={() => onAsk('Show my goal progress')}>Am I on track for my goal?</button><button type="button" onClick={() => onAsk('Compare my insurance cover with a target I choose')}>Help me understand my insurance</button></div></div><Button type="button" onClick={() => onAsk('Help me understand my confirmed financial information.')}>Go to Ask Artha <ArrowRight/></Button></aside>
+
+      {changedFields.length > 0 && <aside className="memory-pending-bar" role="status"><div><CircleAlert/><span><strong>{changedFields.length} {changedFields.length === 1 ? 'change' : 'changes'} waiting for confirmation</strong><small>Artha cannot use these values yet.</small></span></div><div><button type="button" onClick={discardChanges}>Discard</button><Button type="button" onClick={() => { setConfirmed(false); setReviewing(true); }}>Review {changedFields.length} {changedFields.length === 1 ? 'change' : 'changes'} <ArrowRight/></Button></div></aside>}
+    </> : <section className="memory-review" aria-labelledby="memory-review-title"><p className="eyebrow">REVIEW BEFORE CONFIRMING</p><h3 id="memory-review-title">Review changes</h3><p>These values will become part of your confirmed Financial Memory. Existing values are kept in history.</p><ul>{changedFields.map(field => { const current = currentFor(field); const period = field.periodKind === 'monthly' ? `${month}-01` : asOfDate; return <li key={field.type}><span><strong>{field.label}</strong><small>{formatPeriod(period, field.periodKind)}</small></span><span className="review-value-change"><small>{current ? formatMoney(current.value) : 'Not added'}</small><ArrowRight/><strong>{formatMoney(edits[field.type])}</strong></span></li>; })}</ul><label className="scenario-confirm"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)}/> I confirm these values and their dates are mine and correct.</label><div className="memory-review-actions"><Button type="button" variant="secondary" disabled={pending} onClick={() => setReviewing(false)}>Go back</Button><Button type="button" disabled={!confirmed || pending} onClick={() => void saveChanges()}>{pending ? 'Confirming…' : 'Confirm changes'}</Button></div></section>}
+    <footer className="memory-note"><Clock3/> Replaced values remain in history and are never silently overwritten.</footer>
   </section>;
 };
 

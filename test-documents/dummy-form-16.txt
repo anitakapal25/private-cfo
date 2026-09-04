@@ -1,0 +1,14 @@
+SYNTHETIC TEST DOCUMENT - NOT A REAL TAX RECORD
+
+FORM 16 DEMONSTRATION FIXTURE
+Financial Year: 2025-26
+
+Employer: Artha Demo Technologies Private Limited
+Employee: Demo Employee
+Employee Reference: DEMO-001
+Gross Salary: INR 11,40,000.00
+Taxable Income: INR 9,80,000.00
+Tax Deducted: INR 92,000.00
+
+This is not an official Form 16 and contains no PAN or other real identifier.
+Generated only for Private CFO local document testing.

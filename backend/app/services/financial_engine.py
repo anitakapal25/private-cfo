@@ -22,6 +22,19 @@ def calculate_cash_flow(income: Decimal, expenses: Decimal) -> dict:
     return {"monthly_income": money(income), "monthly_expenses": money(expenses), "monthly_surplus": money(surplus), "savings_rate": str(rate.quantize(Decimal("0.0001"))) if rate is not None else None}
 
 
+def calculate_monthly_money_left(
+    income: Decimal, expenses: Decimal, debt_payments: Decimal,
+) -> dict:
+    """Return money remaining after confirmed same-month outflows."""
+    _nonnegative(income, expenses, debt_payments)
+    return {
+        "monthly_income": money(income),
+        "monthly_expenses": money(expenses),
+        "monthly_debt_payments": money(debt_payments),
+        "money_left": money(income - expenses - debt_payments),
+    }
+
+
 def calculate_emergency_fund_coverage(liquid_assets: Decimal, monthly_essential_expenses: Decimal) -> dict:
     _nonnegative(liquid_assets, monthly_essential_expenses)
     months = liquid_assets / monthly_essential_expenses if monthly_essential_expenses else None

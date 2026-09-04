@@ -1,0 +1,21 @@
+SYNTHETIC TEST DOCUMENT - NOT A REAL FINANCIAL RECORD
+
+Demo Bank Account Statement
+Statement Period: 01 August 2026 to 31 August 2026
+
+Account Holder: Demo Employee
+Account Reference: DEMO-ACCOUNT-001
+Opening Balance: INR 1,20,000.00
+
+02 August 2026  Demo salary credit       INR 87,600.00
+05 August 2026  Demo rent payment        INR 25,000.00
+10 August 2026  Demo grocery payment     INR 8,000.00
+20 August 2026  Demo utility payment     INR 3,500.00
+25 August 2026  Demo home loan EMI       INR 12,000.00
+
+Total Income Credits: INR 87,600.00
+Total Living Expense Debits: INR 36,500.00
+Total EMI Debits: INR 12,000.00
+Closing Balance: INR 1,59,100.00
+
+Generated only for Private CFO local document testing.

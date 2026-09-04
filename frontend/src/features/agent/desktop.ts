@@ -14,12 +14,22 @@ export interface LocalDocumentCandidate {
   confidence: string;
   source_location: string;
   source_type: 'local_document_confirmation';
+  period_start?: string;
   status?: 'candidate' | 'confirmed' | 'rejected';
 }
 
 export interface LocalProcessingResult {
   scan_status: 'clean';
   extractor_version: string;
+  candidates: LocalDocumentCandidate[];
+}
+
+export interface SessionDocument {
+  document_id: string;
+  display_name: string;
+  file_size_bytes: number;
+  document_type: string;
+  processed_at: string;
   candidates: LocalDocumentCandidate[];
 }
 

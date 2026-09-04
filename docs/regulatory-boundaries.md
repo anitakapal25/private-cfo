@@ -64,9 +64,9 @@ Financial Freedom Copilot, in its MVP and planned expanded form, can engage in t
 - **Regulatory Basis**: Goal tracking is informational, not advisory
 
 ### 5. Scenario Modeling and Simulations
-- **Permitted**: Running "what-if" scenarios based on user-defined parameters
+- **Permitted**: Running "what-if" scenarios based on user-defined personal facts and reviewed, product-neutral planning assumptions
 - **Examples**: "What if I save ₹5,000 more monthly?", "What if returns are 2% lower?"
-- **Boundary**: User must provide all assumptions; system does not suggest assumptions
+- **Boundary**: System assumptions must be versioned, sourced, dated, non-personalized and fail closed after their review date; they must never be presented as forecasts, guaranteed returns, or product recommendations
 - **Regulatory Basis**: Mathematical modeling tools are not regulated
 
 ### 6. Net Worth and Financial Health Tracking

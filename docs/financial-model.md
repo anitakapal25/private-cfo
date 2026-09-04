@@ -43,6 +43,13 @@ Understanding money movement is crucial for financial planning.
 Monthly Cash Flow = Total Monthly Income - Total Monthly Expenses
 ```
 
+**Monthly Money Left (Financial Memory view):**
+```
+Money Left = Confirmed Monthly Income - Confirmed Monthly Expenses - Confirmed Monthly Loan Payments
+```
+This value is shown only when all three inputs are explicitly confirmed for the same
+calendar month. A missing input is unknown and is never substituted with zero.
+
 **Savings Rate:**
 ```
 Savings Rate = Monthly Savings / Monthly Gross Income
@@ -55,8 +62,29 @@ Where Monthly Savings = Monthly Cash Flow (if positive)
 - Savings rate is a critical predictor of long-term wealth building
 - Indian context: Often high savings rates culturally, but lifestyle inflation can erode this advantage
 
+### Confirmed Action Tracking
+
+Action targets and progress use explicit user inputs only:
+
+```
+Inclusive Months = calendar months from start month through target month
+Target Amount = Monthly Action Amount × Inclusive Months
+Progress Amount = Sum of Manual Check-ins
+Progress Percentage = min(100, Progress Amount ÷ Target Amount × 100)
+```
+
+All values use Decimal arithmetic. Monthly commitment includes only active savings and
+extra debt-payment actions; expense-reduction actions are shown separately so reduced
+spending is not presented as cash committed. Progress is never inferred from financial
+facts or documents in version 1.
+
 ### 3. Financial Freedom Number
 The corpus needed to sustain desired lifestyle without active income.
+
+The Ask Artha baseline resolves inflation, product-neutral return, and withdrawal
+assumptions from the reviewed backend catalogue. Each calculation records the exact
+values, sources, versions, effective dates, and review dates used. Missing or expired
+catalogue entries stop the projection; no hard-coded or model-generated fallback is used.
 
 **Core Concept:**
 Financial freedom is achieved when passive income from investments covers living expenses.

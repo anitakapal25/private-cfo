@@ -1,0 +1,14 @@
+SYNTHETIC TEST DOCUMENT - NOT A REAL FINANCIAL RECORD
+
+Demo Employees Provident Fund Statement
+Statement Period: April 2026 to August 2026
+
+Member: Demo Employee
+Member Reference: DEMO-EPF-001
+Opening Balance: INR 4,50,000.00
+Employee Contributions: INR 36,000.00
+Employer Contributions: INR 36,000.00
+Interest Credit: INR 12,500.00
+Closing Balance: INR 5,34,500.00
+
+Generated only for Private CFO local document testing.

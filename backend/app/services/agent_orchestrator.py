@@ -175,6 +175,7 @@ class AgentOrchestrator:
     def answer(
         self, message: str, freedom_inputs: FreedomProjectionInputs | None = None,
         coverage_target: Decimal | None = None,
+        freedom_assumption_metadata: dict | None = None,
     ) -> AgentAnswer:
         input_decision = evaluate_agent_input(message)
         if not input_decision.allowed:
@@ -210,7 +211,7 @@ class AgentOrchestrator:
         if intent is Intent.CASH_FLOW:
             return self._cash_flow()
         if intent is Intent.FREEDOM_PLAN:
-            return self._freedom_plan(freedom_inputs)
+            return self._freedom_plan(freedom_inputs, freedom_assumption_metadata)
         if intent is Intent.DEBT_ANALYSIS:
             return self._debt_analysis()
         if intent is Intent.CASH_FLOW_FORECAST:
@@ -276,20 +277,19 @@ class AgentOrchestrator:
         )
 
     def _freedom_plan(
-        self, freedom_inputs: FreedomProjectionInputs | None
+        self, freedom_inputs: FreedomProjectionInputs | None,
+        assumption_metadata: dict | None = None,
     ) -> AgentAnswer:
         if freedom_inputs is None:
             return AgentAnswer(
                 intent=Intent.FREEDOM_PLAN,
                 narrative=(
                     "I can build your financial-freedom baseline after the scenario inputs below "
-                    "are explicitly confirmed. I will not infer rates or balances from chat text."
+                    "are explicitly confirmed. Reviewed planning assumptions are supplied by Artha."
                 ),
                 blocks=[{"type": "missing_data", "fields": [
                     "current age", "target age", "current monthly lifestyle expenses",
                     "current investable corpus", "monthly contribution",
-                    "user-selected inflation rate", "user-selected return rate",
-                    "user-selected withdrawal rate",
                 ]}],
             )
         authorize_tool("calculate_financial_freedom_projection", Intent.FREEDOM_PLAN.value)
@@ -301,24 +301,35 @@ class AgentOrchestrator:
             "current_investable_corpus": str(freedom_inputs.current_investable_corpus),
             "monthly_contribution": str(freedom_inputs.monthly_contribution),
         }
+        assumption_source = (assumption_metadata or {}).get("source", "explicit_user_confirmed_scenario")
         assumptions = {
             "annual_inflation_rate": str(freedom_inputs.annual_inflation_rate),
             "annual_return_rate": str(freedom_inputs.annual_return_rate),
             "withdrawal_rate": str(freedom_inputs.withdrawal_rate),
             "contribution_timing": "end_of_month",
             "monthly_rate_method": "nominal_annual_rate_divided_by_12",
-            "source": "explicit_user_confirmed_scenario",
+            "source": assumption_source,
+            "rates": (assumption_metadata or {}).get("rates", {}),
         }
         record = self._record_calculation(
             "financial_freedom_projection", result,
-            ["explicit user-confirmed scenario inputs"],
+            ["explicit user-confirmed personal scenario inputs", assumption_source],
             version=PROJECTION_VERSION, inputs=input_record, assumptions=assumptions,
+            input_provenance=[
+                {"source": "explicit_user_confirmed_personal_scenario"},
+                {"source": assumption_source},
+            ],
+            rule_versions={
+                field: rate["version"]
+                for field, rate in assumptions["rates"].items()
+            },
         )
         return AgentAnswer(
             intent=Intent.FREEDOM_PLAN,
             narrative=(
                 "This is your deterministic financial-freedom scenario based on the values and "
-                "assumptions you explicitly confirmed. It is a planning projection, not a guarantee."
+                "personal values you confirmed and the reviewed assumptions shown in the evidence. "
+                "It is a planning projection, not a guarantee."
             ),
             blocks=[self._calculation_block(record, result)],
             tool_name="calculate_financial_freedom_projection",
@@ -387,6 +398,8 @@ class AgentOrchestrator:
         self, calculation_type: str, result: dict, sources: list[str] | None = None,
         *, version: str = CALCULATION_VERSION, inputs: dict | None = None,
         assumptions: dict | None = None, context=None,
+        input_provenance: list[dict] | None = None,
+        rule_versions: dict | None = None,
     ) -> CalculationRecord:
         now = datetime.now(timezone.utc)
         provenance = context.provenance if context else []
@@ -399,8 +412,8 @@ class AgentOrchestrator:
             inputs=inputs or {"sources": sources or [], "fact_ids": [item["fact_id"] for item in provenance]},
             assumptions=assumptions or {"currency": "INR", "frequency_normalization": "monthly"},
             result=result,
-            input_provenance=provenance,
-            rule_versions={"calculation": version},
+            input_provenance=input_provenance if input_provenance is not None else provenance,
+            rule_versions={"calculation": version, **(rule_versions or {})},
             limitations=limitations,
             as_of=context.as_of if context else now,
         )

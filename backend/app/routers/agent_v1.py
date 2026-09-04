@@ -7,24 +7,28 @@ import json
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from app.auth.manager import get_current_active_user
 from app.core.config import Settings, get_db, get_settings
 from app.core.model_gateway import MODEL_POLICY_BUNDLE_VERSION, ModelRequest, OpenAIModelGateway
-from app.models.agent import ActionPlan, AgentRun, AuditEvent, Confirmation, Conversation, ConversationMessage, FinancialFact, ModelConsent, PlannedAction, ProactiveReview
+from app.models.agent import ActionCheckIn, ActionPlan, AgentRun, AuditEvent, CalculationRecord, Confirmation, Conversation, ConversationMessage, FinancialFact, ModelConsent, PlannedAction, ProactiveReview
 from app.models.user import User
 from app.services.agent_orchestrator import AgentOrchestrator, audit_agent_run
 from app.services.financial_freedom import FreedomProjectionInputs
 from app.services.ecosystem_capabilities import get_ecosystem_capabilities
 from app.services.financial_context import ALLOWED_FACT_TYPES, MONTHLY_FACT_TYPES, FinancialContextService
-from app.services.recommendation_planner import CandidateAction, rank_actions
+from app.services.financial_engine import calculate_monthly_money_left
+from app.services.recommendation_planner import ACTION_TRACKING_VERSION, CandidateAction, calculate_action_progress, calculate_action_target, rank_actions
 from app.services.proactive_reviews import persist_reviews
 from app.guardrails.data_redaction import redact_sensitive
+from app.guardrails.assumption_freshness import StaleAssumptionError, require_current_assumption
+from app.guardrails.catalog import FINANCIAL_FREEDOM_ASSUMPTIONS
 
 router = APIRouter()
+MEMORY_MONTHLY_SUMMARY_VERSION = "financial-memory-monthly-v1"
 
 CLOUD_ASSISTANCE_CATEGORIES = (
     "agent_intent",
@@ -71,15 +75,52 @@ class FreedomScenarioRequest(BaseModel):
     current_monthly_lifestyle_expenses: Decimal = Field(gt=0, max_digits=15, decimal_places=2)
     current_investable_corpus: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
     monthly_contribution: Decimal = Field(ge=0, max_digits=15, decimal_places=2)
-    annual_inflation_rate: Decimal = Field(ge=0, le=Decimal("0.20"), max_digits=5, decimal_places=4)
-    annual_return_rate: Decimal = Field(ge=Decimal("-0.50"), le=Decimal("0.50"), max_digits=5, decimal_places=4)
-    withdrawal_rate: Decimal = Field(ge=Decimal("0.01"), le=Decimal("0.10"), max_digits=5, decimal_places=4)
+    annual_inflation_rate: Decimal | None = Field(default=None, ge=0, le=Decimal("0.20"), max_digits=5, decimal_places=4)
+    annual_return_rate: Decimal | None = Field(default=None, ge=Decimal("-0.50"), le=Decimal("0.50"), max_digits=5, decimal_places=4)
+    withdrawal_rate: Decimal | None = Field(default=None, ge=Decimal("0.01"), le=Decimal("0.10"), max_digits=5, decimal_places=4)
 
     @model_validator(mode="after")
     def validate_age_order(self):
         if self.target_age <= self.current_age:
             raise ValueError("target_age must be greater than current_age")
+        supplied_rates = (
+            self.annual_inflation_rate,
+            self.annual_return_rate,
+            self.withdrawal_rate,
+        )
+        if any(rate is not None for rate in supplied_rates) and not all(rate is not None for rate in supplied_rates):
+            raise ValueError("custom scenario rates must be supplied together")
         return self
+
+
+def resolve_freedom_scenario(payload: FreedomScenarioRequest) -> tuple[FreedomProjectionInputs, dict[str, Any]]:
+    scenario = payload.model_dump()
+    if payload.annual_inflation_rate is not None:
+        return FreedomProjectionInputs(**scenario), {
+            "source": "explicit_user_confirmed_scenario",
+            "rates": {},
+        }
+
+    rates: dict[str, Any] = {}
+    for field, assumption in FINANCIAL_FREEDOM_ASSUMPTIONS.items():
+        require_current_assumption(assumption)
+        if assumption.value is None or assumption.version is None or assumption.reviewed_at is None:
+            raise StaleAssumptionError(f"Assumption {assumption.identifier} has not completed review")
+        scenario[field] = assumption.value
+        rates[field] = {
+            "value": str(assumption.value),
+            "identifier": assumption.identifier,
+            "version": assumption.version,
+            "source_url": assumption.source_url,
+            "effective_from": assumption.effective_from.isoformat(),
+            "reviewed_at": assumption.reviewed_at.isoformat(),
+            "review_by": assumption.review_by.isoformat(),
+            "methodology": assumption.methodology,
+        }
+    return FreedomProjectionInputs(**scenario), {
+        "source": "reviewed_assumption_catalogue",
+        "rates": rates,
+    }
 
 
 class SendMessageRequest(BaseModel):
@@ -284,8 +325,24 @@ class FactBatchDecisionRequest(BaseModel):
 class CandidateActionRequest(BaseModel):
     action_type: Literal["reduce_monthly_expenses", "increase_monthly_savings", "increase_debt_payment"]
     monthly_amount: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
-    feasibility: Decimal = Field(ge=0, le=1, max_digits=5, decimal_places=4)
-    user_priority: Decimal = Field(ge=0, le=1, max_digits=5, decimal_places=4)
+    feasibility: Decimal | None = Field(default=None, ge=0, le=1, max_digits=5, decimal_places=4)
+    user_priority: Decimal | None = Field(default=None, ge=0, le=1, max_digits=5, decimal_places=4)
+    priority_label: Literal["low", "medium", "high"] = "medium"
+    difficulty_label: Literal["easy", "manageable", "difficult"] = "manageable"
+    start_date: date | None = None
+    target_date: date | None = None
+
+    @model_validator(mode="after")
+    def derive_scores_and_dates(self):
+        priority_scores = {"low": Decimal("0.25"), "medium": Decimal("0.50"), "high": Decimal("0.75")}
+        difficulty_scores = {"easy": Decimal("0.25"), "manageable": Decimal("0.50"), "difficult": Decimal("0.75")}
+        self.user_priority = self.user_priority if self.user_priority is not None else priority_scores[self.priority_label]
+        self.feasibility = self.feasibility if self.feasibility is not None else Decimal("1") - difficulty_scores[self.difficulty_label]
+        self.start_date = self.start_date or date.today()
+        self.target_date = self.target_date or self.start_date
+        if self.target_date < self.start_date:
+            raise ValueError("Target date must be on or after the start date")
+        return self
 
 
 class RankActionsRequest(BaseModel):
@@ -302,14 +359,99 @@ class ConvertReviewRequest(BaseModel):
     plan_id: UUID
 
 
+class UpdatePlannedActionRequest(BaseModel):
+    monthly_amount: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
+    priority_label: Literal["low", "medium", "high"]
+    difficulty_label: Literal["easy", "manageable", "difficult"]
+    start_date: date
+    target_date: date
+    confirmation_id: UUID
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.target_date < self.start_date:
+            raise ValueError("Target date must be on or after the start date")
+        return self
+
+
+class ActionCheckInRequest(BaseModel):
+    amount: Decimal = Field(gt=0, max_digits=20, decimal_places=2)
+    check_in_date: date
+    note: str | None = Field(default=None, max_length=240)
+
+    @model_validator(mode="after")
+    def reject_future_check_in(self):
+        if self.check_in_date > date.today():
+            raise ValueError("Check-in date cannot be in the future")
+        return self
+
+
+class ActionStatusRequest(BaseModel):
+    status: Literal["active", "paused", "completed", "archived"]
+    confirmation_id: UUID | None = None
+
+
 @router.post("/planning/candidates")
 def compare_planning_actions(
     payload: RankActionsRequest,
     current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ):
-    del current_user
-    actions = [CandidateAction(**item.model_dump()) for item in payload.actions]
-    return {"actions": rank_actions(actions)}
+    actions = [CandidateAction(action_type=item.action_type, monthly_amount=item.monthly_amount, feasibility=item.feasibility, user_priority=item.user_priority) for item in payload.actions]
+    ranked = rank_actions(actions)
+    now = datetime.now(timezone.utc)
+    record = CalculationRecord(
+        calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="planning_action_candidates",
+        calculation_version=ACTION_TRACKING_VERSION,
+        inputs={"actions": [item.model_dump(mode="json") for item in payload.actions]},
+        assumptions={"priority_mapping": "low=0.25, medium=0.50, high=0.75", "difficulty": "inverted into feasibility"},
+        result={"actions": ranked}, input_provenance=[{"source": "user_input"}], rule_versions={},
+        limitations=["Conditional planning impact only", "No product or guaranteed outcome is implied"], as_of=now,
+    )
+    db.add(record); db.commit()
+    return {"actions": ranked, "calculation_id": record.calculation_id, "version": ACTION_TRACKING_VERSION, "timestamp": now, "assumptions": record.assumptions, "limitations": record.limitations}
+
+
+def _action_progress(action: PlannedAction) -> dict[str, Any]:
+    return calculate_action_progress([Decimal(item.amount) for item in action.check_ins], Decimal(action.target_amount))
+
+
+def _action_response(action: PlannedAction, *, include_check_ins: bool = False) -> dict[str, Any]:
+    result = {
+        "action_id": action.action_id, "action_type": action.action_type,
+        "monthly_amount": str(action.monthly_amount), "currency": action.currency,
+        "rank": str(action.rank), "rationale": action.rationale, "impact": action.impact,
+        "status": action.status, "start_date": action.start_date, "target_date": action.target_date,
+        "target_amount": str(action.target_amount), "priority_label": action.priority_label,
+        "difficulty_label": action.difficulty_label, "progress": _action_progress(action),
+        "created_at": action.created_at, "updated_at": action.updated_at,
+        "completed_at": action.completed_at, "archived_at": action.archived_at,
+    }
+    if include_check_ins:
+        result["check_ins"] = [{"check_in_id": item.check_in_id, "amount": str(item.amount), "currency": item.currency, "check_in_date": item.check_in_date, "note": item.note, "created_at": item.created_at} for item in sorted(action.check_ins, key=lambda value: (value.check_in_date, value.created_at), reverse=True)]
+    return result
+
+
+def _owned_action(db: Session, action_id: UUID, user_id: UUID) -> PlannedAction:
+    action = db.query(PlannedAction).join(ActionPlan).filter(PlannedAction.action_id == action_id, ActionPlan.user_id == user_id).first()
+    if action is None:
+        raise HTTPException(status_code=404, detail="Planning action not found")
+    return action
+
+
+def _consume_confirmation(db: Session, confirmation_id: UUID | None, user_id: UUID, action_type: str, action_payload: dict[str, Any]) -> Confirmation:
+    canonical = json.dumps(action_payload, sort_keys=True, separators=(",", ":"))
+    expected_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    confirmation = db.query(Confirmation).filter(
+        Confirmation.confirmation_id == confirmation_id, Confirmation.user_id == user_id,
+        Confirmation.action_type == action_type, Confirmation.status == "confirmed",
+        Confirmation.consumed_at.is_(None),
+    ).with_for_update().first()
+    now = datetime.now(timezone.utc)
+    if confirmation is None or confirmation.expires_at < now or confirmation.action_payload_hash != expected_hash:
+        raise HTTPException(status_code=409, detail="A current payload-matched confirmation is required")
+    confirmation.consumed_at = now; confirmation.status = "consumed"
+    return confirmation
 
 
 @router.get("/planning/plans")
@@ -321,7 +463,7 @@ def list_action_plans(
     return [{
         "plan_id": plan.plan_id, "title": plan.title, "status": plan.status,
         "created_at": plan.created_at,
-        "actions": [{"action_id": action.action_id, "action_type": action.action_type, "monthly_amount": str(action.monthly_amount), "currency": action.currency, "rank": str(action.rank), "rationale": action.rationale, "impact": action.impact, "status": action.status} for action in plan.actions],
+        "actions": [_action_response(action) for action in plan.actions],
     } for plan in plans]
 
 
@@ -331,35 +473,112 @@ def create_action_plan(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
-    action_payload = {"title": payload.title, "actions": [item.model_dump(mode="json") for item in payload.actions]}
-    canonical = json.dumps(action_payload, sort_keys=True, separators=(",", ":"))
-    expected_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-    confirmation = db.query(Confirmation).filter(
-        Confirmation.confirmation_id == payload.confirmation_id,
-        Confirmation.user_id == current_user.user_id,
-        Confirmation.action_type == "create_action_plan",
-        Confirmation.status == "confirmed",
-        Confirmation.consumed_at.is_(None),
-    ).with_for_update().first()
-    now = datetime.now(timezone.utc)
-    if confirmation is None or confirmation.expires_at < now or confirmation.action_payload_hash != expected_hash:
-        raise HTTPException(status_code=409, detail="A current payload-matched confirmation is required")
-    ranked = rank_actions([CandidateAction(**item.model_dump()) for item in payload.actions])
-    plan = ActionPlan(user_id=current_user.user_id, title=payload.title)
-    db.add(plan)
-    db.flush()
-    for position, item in enumerate(ranked, start=1):
-        db.add(PlannedAction(
+    action_payload = {"title": payload.title, "actions": [item.model_dump(mode="json", exclude_unset=True) for item in payload.actions]}
+    confirmation = _consume_confirmation(db, payload.confirmation_id, current_user.user_id, "create_action_plan", action_payload)
+    ranked = [rank_actions([CandidateAction(action_type=item.action_type, monthly_amount=item.monthly_amount, feasibility=item.feasibility, user_priority=item.user_priority)])[0] for item in payload.actions]
+    plan = db.query(ActionPlan).filter(ActionPlan.user_id == current_user.user_id, ActionPlan.status == "active").first()
+    if plan is None:
+        plan = ActionPlan(user_id=current_user.user_id, title=payload.title, status="active")
+        db.add(plan); db.flush()
+    calculation_ids = []
+    for request_item, item in zip(payload.actions, ranked, strict=True):
+        target = calculate_action_target(request_item.monthly_amount, request_item.start_date, request_item.target_date)
+        action = PlannedAction(
             plan_id=plan.plan_id, action_type=item["action_type"],
             monthly_amount=Decimal(item["monthly_amount"]), rank=Decimal(item["score"]),
-            rationale=item["rationale"], impact=item["impact"], status="planned",
-        ))
-    confirmation.consumed_at = now
-    confirmation.status = "consumed"
+            rationale=item["rationale"], impact=item["impact"], status="active",
+            start_date=request_item.start_date, target_date=request_item.target_date,
+            target_amount=Decimal(target["target_amount"]), priority_label=request_item.priority_label,
+            difficulty_label=request_item.difficulty_label,
+        )
+        db.add(action); db.flush()
+        calculation = CalculationRecord(calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="action_target", calculation_version=ACTION_TRACKING_VERSION, inputs={"action_id": str(action.action_id), "monthly_amount": str(request_item.monthly_amount), "start_date": request_item.start_date.isoformat(), "target_date": request_item.target_date.isoformat()}, assumptions={"month_count": "inclusive calendar months"}, result=target, input_provenance=[{"source": "confirmed_action"}], rule_versions={}, limitations=["Target assumes the same action amount each calendar month"], as_of=datetime.now(timezone.utc))
+        db.add(calculation); calculation_ids.append(calculation.calculation_id)
     db.add(AuditEvent(user_id=current_user.user_id, event_type="action_plan_created", target_type="action_plan", target_id=str(plan.plan_id), outcome="success", metadata_json={"action_count": len(ranked), "planner_version": "planning-actions-v1"}))
     db.commit()
     db.refresh(plan)
-    return {"plan_id": plan.plan_id, "title": plan.title, "status": plan.status, "action_count": len(ranked)}
+    return {"plan_id": plan.plan_id, "title": plan.title, "status": plan.status, "action_count": len(ranked), "calculation_ids": calculation_ids, "version": ACTION_TRACKING_VERSION}
+
+
+@router.get("/planning/plans/active")
+def get_active_action_plan(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    plans = db.query(ActionPlan).filter(ActionPlan.user_id == current_user.user_id).order_by(ActionPlan.created_at.desc()).all()
+    active_plan = next((plan for plan in plans if plan.status == "active"), None)
+    actions = [action for plan in plans for action in plan.actions]
+    active_actions = [action for action in (active_plan.actions if active_plan else []) if action.status in {"active", "paused"}]
+    completed = [action for action in actions if action.status == "completed" and action.plan.status != "archived"]
+    archived = [action for action in actions if action.status == "archived" or action.plan.status == "archived"]
+    commitment = sum((Decimal(action.monthly_amount) for action in active_actions if action.status == "active" and action.action_type in {"increase_monthly_savings", "increase_debt_payment"}), Decimal("0"))
+    now = datetime.now(timezone.utc)
+    result = {
+        "plan": {"plan_id": active_plan.plan_id, "title": active_plan.title, "created_at": active_plan.created_at} if active_plan else None,
+        "summary": {"active_count": len(active_actions), "monthly_commitment": {"amount": str(commitment.quantize(Decimal('0.01'))), "currency": "INR"}, "completed_count": len(completed)},
+        "active_actions": [_action_response(action) for action in active_actions],
+        "completed_actions": [_action_response(action) for action in completed],
+        "archived_actions": [_action_response(action) for action in archived],
+    }
+    record = CalculationRecord(calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="action_plan_summary", calculation_version=ACTION_TRACKING_VERSION, inputs={"active_action_ids": [str(action.action_id) for action in active_actions]}, assumptions={"monthly_commitment": "active savings and extra debt-payment actions only", "progress": "manual check-ins only"}, result=result["summary"], input_provenance=[{"source": "confirmed_action_plan"}], rule_versions={}, limitations=["Expense-reduction actions are excluded from monthly commitment"], as_of=now)
+    db.add(record); db.commit()
+    return {**result, "calculation_id": record.calculation_id, "version": ACTION_TRACKING_VERSION, "timestamp": now, "assumptions": record.assumptions, "limitations": record.limitations}
+
+
+@router.get("/planning/actions/{action_id}")
+def get_planned_action(action_id: UUID, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    action = _owned_action(db, action_id, current_user.user_id)
+    progress = _action_progress(action); now = datetime.now(timezone.utc)
+    record = CalculationRecord(calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="action_progress", calculation_version=ACTION_TRACKING_VERSION, inputs={"action_id": str(action.action_id), "check_in_ids": [str(item.check_in_id) for item in action.check_ins]}, assumptions={"progress": "sum of explicit manual check-ins capped at 100%"}, result=progress, input_provenance=[{"source": "user_check_in"}], rule_versions={}, limitations=["Progress is based only on user check-ins"], as_of=now)
+    db.add(record); db.commit()
+    return {**_action_response(action, include_check_ins=True), "calculation_id": record.calculation_id, "version": ACTION_TRACKING_VERSION, "timestamp": now, "assumptions": record.assumptions, "limitations": record.limitations}
+
+
+@router.post("/planning/actions/{action_id}/check-ins", status_code=201)
+def create_action_check_in(action_id: UUID, payload: ActionCheckInRequest, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    action = _owned_action(db, action_id, current_user.user_id)
+    if action.status not in {"active", "paused"}:
+        raise HTTPException(status_code=409, detail="Only active or paused actions accept check-ins")
+    check_in = ActionCheckIn(action=action, amount=payload.amount, check_in_date=payload.check_in_date, note=payload.note)
+    db.add(check_in); db.flush()
+    progress = calculate_action_progress([Decimal(item.amount) for item in action.check_ins], Decimal(action.target_amount))
+    now = datetime.now(timezone.utc)
+    record = CalculationRecord(calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="action_progress", calculation_version=ACTION_TRACKING_VERSION, inputs={"action_id": str(action.action_id), "check_in_ids": [str(item.check_in_id) for item in action.check_ins]}, assumptions={"progress": "sum of explicit manual check-ins capped at 100%"}, result=progress, input_provenance=[{"source": "user_check_in"}], rule_versions={}, limitations=["Progress is based only on user check-ins"], as_of=now)
+    db.add(record); db.add(AuditEvent(user_id=current_user.user_id, event_type="action_check_in_created", target_type="planned_action", target_id=str(action.action_id), outcome="success", metadata_json={"calculation_id": str(record.calculation_id)})); db.commit(); db.refresh(check_in)
+    return {"check_in_id": check_in.check_in_id, "progress": progress, "calculation_id": record.calculation_id, "version": ACTION_TRACKING_VERSION, "timestamp": now}
+
+
+@router.patch("/planning/actions/{action_id}")
+def update_planned_action(action_id: UUID, payload: UpdatePlannedActionRequest, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    action = _owned_action(db, action_id, current_user.user_id)
+    if action.status == "archived":
+        raise HTTPException(status_code=409, detail="Archived actions cannot be edited")
+    action_payload = {"action_id": str(action_id), **payload.model_dump(mode="json", exclude={"confirmation_id"})}
+    _consume_confirmation(db, payload.confirmation_id, current_user.user_id, "update_planned_action", action_payload)
+    target = calculate_action_target(payload.monthly_amount, payload.start_date, payload.target_date)
+    label_scores = {"low": Decimal("0.25"), "medium": Decimal("0.50"), "high": Decimal("0.75")}
+    difficulty_scores = {"easy": Decimal("0.25"), "manageable": Decimal("0.50"), "difficult": Decimal("0.75")}
+    ranked = rank_actions([CandidateAction(action_type=action.action_type, monthly_amount=payload.monthly_amount, feasibility=Decimal("1") - difficulty_scores[payload.difficulty_label], user_priority=label_scores[payload.priority_label])])[0]
+    action.monthly_amount = payload.monthly_amount; action.start_date = payload.start_date; action.target_date = payload.target_date
+    action.target_amount = Decimal(target["target_amount"]); action.priority_label = payload.priority_label; action.difficulty_label = payload.difficulty_label
+    action.rank = Decimal(ranked["score"]); action.rationale = ranked["rationale"]; action.impact = ranked["impact"]
+    action.updated_at = datetime.now(timezone.utc)
+    calculation = CalculationRecord(calculation_id=uuid4(), user_id=current_user.user_id, calculation_type="action_target", calculation_version=ACTION_TRACKING_VERSION, inputs={"action_id": str(action.action_id), "monthly_amount": str(payload.monthly_amount), "start_date": payload.start_date.isoformat(), "target_date": payload.target_date.isoformat()}, assumptions={"month_count": "inclusive calendar months"}, result=target, input_provenance=[{"source": "confirmed_action_update"}], rule_versions={}, limitations=["Target assumes the same action amount each calendar month"], as_of=action.updated_at)
+    db.add(calculation)
+    db.add(AuditEvent(user_id=current_user.user_id, event_type="planned_action_updated", target_type="planned_action", target_id=str(action.action_id), outcome="success", metadata_json={"tracking_version": ACTION_TRACKING_VERSION})); db.commit(); db.refresh(action)
+    return {**_action_response(action, include_check_ins=True), "calculation_id": calculation.calculation_id, "version": ACTION_TRACKING_VERSION, "timestamp": calculation.as_of, "assumptions": calculation.assumptions, "limitations": calculation.limitations}
+
+
+@router.post("/planning/actions/{action_id}/status")
+def change_planned_action_status(action_id: UUID, payload: ActionStatusRequest, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    action = _owned_action(db, action_id, current_user.user_id)
+    allowed = {"active": {"paused", "completed", "archived"}, "paused": {"active", "completed", "archived"}, "completed": {"archived"}, "archived": set()}
+    if payload.status not in allowed.get(action.status, set()):
+        raise HTTPException(status_code=409, detail="Unsupported action status transition")
+    if payload.status == "archived":
+        _consume_confirmation(db, payload.confirmation_id, current_user.user_id, "archive_planned_action", {"action_id": str(action_id), "status": "archived"})
+    now = datetime.now(timezone.utc); action.status = payload.status; action.updated_at = now
+    action.completed_at = now if payload.status == "completed" else action.completed_at
+    action.archived_at = now if payload.status == "archived" else action.archived_at
+    db.add(AuditEvent(user_id=current_user.user_id, event_type=f"planned_action_{payload.status}", target_type="planned_action", target_id=str(action.action_id), outcome="success", metadata_json={})); db.commit(); db.refresh(action)
+    return _action_response(action, include_check_ins=True)
 
 
 @router.get("/financial-facts", response_model=list[FinancialFactResponse])
@@ -370,6 +589,64 @@ def list_financial_facts(
     return db.query(FinancialFact).filter(
         FinancialFact.user_id == current_user.user_id
     ).order_by(FinancialFact.period_start.desc(), FinancialFact.created_at.desc()).all()
+
+
+@router.get("/financial-memory/monthly-summary")
+def get_financial_memory_monthly_summary(
+    month: str = Query(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$"),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    period_start = date.fromisoformat(f"{month}-01")
+    required = ("monthly_income", "monthly_expenses", "monthly_debt_payments")
+    rows = db.query(FinancialFact).filter(
+        FinancialFact.user_id == current_user.user_id,
+        FinancialFact.fact_type.in_(required),
+        FinancialFact.period_kind == "monthly",
+        FinancialFact.period_start == period_start,
+        FinancialFact.verification_status == "verified",
+    ).order_by(FinancialFact.created_at.desc()).all()
+    selected = {}
+    for row in rows:
+        selected.setdefault(row.fact_type, row)
+    missing = [fact_type for fact_type in required if fact_type not in selected]
+    if missing:
+        return {"status": "incomplete", "month": month, "missing": missing, "money_left": None}
+
+    result = calculate_monthly_money_left(*(Decimal(selected[key].value) for key in required))
+    now = datetime.now(timezone.utc)
+    provenance = [{
+        "fact_id": str(selected[key].fact_id), "fact_type": key,
+        "source_type": selected[key].source_type, "source_id": selected[key].source_id,
+        "observed_at": selected[key].observed_at.isoformat(),
+        "period_kind": selected[key].period_kind,
+        "period_start": selected[key].period_start.isoformat(),
+        "verified_at": selected[key].verified_at.isoformat() if selected[key].verified_at else None,
+    } for key in required]
+    assumptions = {
+        "currency": "INR", "period": month,
+        "formula": "monthly_income - monthly_expenses - monthly_debt_payments",
+        "inputs": "confirmed_same_month_facts_only",
+    }
+    record = CalculationRecord(
+        calculation_id=uuid4(), user_id=current_user.user_id,
+        calculation_type="financial_memory_monthly_money_left",
+        calculation_version=MEMORY_MONTHLY_SUMMARY_VERSION,
+        inputs={"fact_ids": [item["fact_id"] for item in provenance]},
+        assumptions=assumptions, result=result, input_provenance=provenance,
+        rule_versions={"calculation": MEMORY_MONTHLY_SUMMARY_VERSION},
+        limitations=["Only confirmed facts for the selected calendar month are included"],
+        as_of=now,
+    )
+    db.add(record)
+    db.commit()
+    return {
+        "status": "complete", "month": month, "missing": [],
+        "money_left": result["money_left"], "calculation_id": str(record.calculation_id),
+        "version": record.calculation_version, "timestamp": now.isoformat(),
+        "assumptions": assumptions, "provenance": provenance,
+        "limitations": record.limitations,
+    }
 
 
 @router.post("/financial-facts", response_model=FinancialFactResponse, status_code=201)
@@ -641,12 +918,19 @@ async def send_message(
         role="user", content=payload.content, structured_content={},
     )
     db.add(user_message)
-    freedom_inputs = (
-        FreedomProjectionInputs(**payload.freedom_scenario.model_dump())
-        if payload.freedom_scenario else None
-    )
+    freedom_inputs = None
+    freedom_assumption_metadata = None
+    if payload.freedom_scenario:
+        try:
+            freedom_inputs, freedom_assumption_metadata = resolve_freedom_scenario(payload.freedom_scenario)
+        except StaleAssumptionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="This projection is temporarily unavailable while Artha’s planning assumptions are being reviewed.",
+            ) from exc
     answer = AgentOrchestrator(db, current_user.user_id).answer(
-        payload.content, freedom_inputs, payload.user_selected_coverage_target
+        payload.content, freedom_inputs, payload.user_selected_coverage_target,
+        freedom_assumption_metadata,
     )
     model_used = False
     if payload.cloud_assistance:

@@ -2,10 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 
 const conversationId = '11111111-1111-4111-8111-111111111111';
 
-function financialFact(factType: string, value: string, verificationStatus = 'verified') {
+function financialFact(factType: string, value: string, verificationStatus = 'verified', sourceType = 'user_statement') {
   return {
-    fact_id: `${factType}-fact`, fact_type: factType, value, unit: 'INR', source_type: 'user_statement',
-    verification_status: verificationStatus, observed_at: '2026-09-01T00:00:00Z', verified_at: '2026-09-01T00:00:00Z',
+    fact_id: `${factType}-fact`, fact_type: factType, value, unit: 'INR', source_type: sourceType,
+    verification_status: verificationStatus, period_kind: factType.startsWith('monthly_') ? 'monthly' : 'as_of',
+    period_start: factType.startsWith('monthly_') ? '2026-09-01' : '2026-09-04',
+    observed_at: '2026-09-01T00:00:00Z', verified_at: '2026-09-01T00:00:00Z',
   };
 }
 
@@ -15,6 +17,8 @@ async function mockAuthenticatedShell(page: Page, facts: ReturnType<typeof finan
     body: JSON.stringify({ access_token: 'browser-test-token' }),
   }));
   await page.route('**/api/v1/agent/financial-facts', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(facts) }));
+  await page.route('**/api/v1/agent/financial-memory/monthly-summary**', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'incomplete', month: '2026-09', missing: ['monthly_income', 'monthly_expenses', 'monthly_debt_payments'], money_left: null }) }));
+  await page.route('**/api/v1/agent/planning/plans/active', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: null, summary: { active_count: 0, monthly_commitment: { amount: '0.00', currency: 'INR' }, completed_count: 0 }, active_actions: [], completed_actions: [], archived_actions: [], calculation_id: 'plan-summary-calculation', version: 'action-tracking-v1', timestamp: '2026-09-04T00:00:00Z', assumptions: {}, limitations: [] }) }));
   await page.route('**/api/v1/agent/reviews', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
   await page.route('**/api/v1/agent/conversations', route => route.fulfill({
     status: 201, contentType: 'application/json',
@@ -34,7 +38,7 @@ test('incomplete financial setup shows verified-only progress and selects the fi
   await expect(page.getByText('Document review is available in the supported desktop app.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review on this device' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Add your details' }).click();
-  await expect(page.locator('.memory-field.requested-field')).toContainText('Monthly expenses');
+  await expect(page.locator('.memory-value-card.requested-field')).toContainText('Monthly expenses');
 });
 
 test('Financial Memory groups dated values and confirms a reviewed batch', async ({ page }) => {
@@ -53,15 +57,54 @@ test('Financial Memory groups dated values and confirms a reviewed batch', async
   });
   await signIn(page);
   await page.getByRole('button', { name: 'Financial memory' }).click();
-  await expect(page.getByRole('heading', { name: 'Financial Memory' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What Artha knows about you' })).toBeVisible();
+  await page.locator('#memory-card-monthly_income').getByRole('button', { name: '+ Add' }).click();
+  await page.locator('#memory-card-monthly_expenses').getByRole('button', { name: '+ Add' }).click();
   await page.locator('#memory-monthly_income').fill('85000');
   await page.locator('#memory-monthly_expenses').fill('40000');
   await page.getByRole('button', { name: 'Review 2 changes' }).click();
-  await page.getByLabel('I confirm these values, dates, and periods are mine and correct.').check();
-  await page.getByRole('button', { name: 'Confirm values' }).click();
+  await page.getByLabel('I confirm these values and their dates are mine and correct.').check();
+  await page.getByRole('button', { name: 'Confirm changes' }).click();
   await expect(page.getByRole('status')).toContainText('2 values were confirmed');
   expect((candidatePayload?.facts as unknown[])).toHaveLength(2);
   expect(decisionPayload?.decision).toBe('confirm');
+});
+
+test('Financial Memory is read-first, preserves unknown versus zero, and shows traced money left', async ({ page }) => {
+  await mockAuthenticatedShell(page, [
+    financialFact('monthly_income', '87600'), financialFact('monthly_expenses', '42000'),
+    financialFact('monthly_debt_payments', '10000'), financialFact('total_liabilities', '0'),
+  ]);
+  await page.route('**/api/v1/agent/financial-memory/monthly-summary**', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      status: 'complete', month: '2026-09', missing: [], money_left: { amount: '35600.00', currency: 'INR' },
+      calculation_id: '44444444-4444-4444-8444-444444444444', version: 'financial-memory-monthly-v1',
+      timestamp: '2026-09-04T00:00:00Z', assumptions: { formula: 'monthly_income - monthly_expenses - monthly_debt_payments' },
+    }),
+  }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'Financial memory' }).click();
+  await expect(page.locator('#memory-card-monthly_income')).toContainText('₹87,600');
+  await expect(page.locator('#memory-card-monthly_income').locator('input')).toHaveCount(0);
+  await expect(page.locator('#memory-card-total_liabilities')).toContainText('₹0');
+  await expect(page.locator('#memory-card-total_assets')).toContainText('Not added');
+  await expect(page.locator('.money-left-card')).toContainText('₹35,600');
+  await page.getByText('Calculation evidence').click();
+  await expect(page.locator('.money-left-card')).toContainText('44444444-4444-4444-8444-444444444444');
+});
+
+test('Financial Memory does not expose a raw monthly-summary 404', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.unroute('**/api/v1/agent/financial-memory/monthly-summary**');
+  await page.route('**/api/v1/agent/financial-memory/monthly-summary**', route => route.fulfill({
+    status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not Found' }),
+  }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'Financial memory' }).click();
+  await expect(page.getByRole('heading', { name: 'What Artha knows about you' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByText('Monthly calculation is temporarily unavailable. Your confirmed values are unchanged.')).toBeVisible();
+  await expect(page.getByText('Not Found')).toHaveCount(0);
 });
 
 test('four verified basics including zero debt show the guided dashboard and accessible explanations', async ({ page }) => {
@@ -88,10 +131,23 @@ test('browser host never uploads local financial documents', async ({ page }) =>
   });
   await signIn(page);
   await page.getByRole('button', { name: 'Documents' }).click();
-  await page.getByText('Local document review').click();
-  await expect(page.getByText('Desktop application required')).toBeVisible();
-  await expect(page.getByText('No upload will be sent to the server.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible();
+  await expect(page.getByText('The supported desktop application is required. Browser uploads are disabled.')).toBeVisible();
+  await expect(page.getByText('Your PDF stays on this device')).toBeVisible();
   expect(documentRequests).toBe(0);
+});
+
+test('Documents page summarizes confirmed document facts and hands off to Ask Artha', async ({ page }) => {
+  await mockAuthenticatedShell(page, [
+    financialFact('monthly_income', '87600', 'verified', 'local_document_confirmation'),
+    financialFact('insurance_coverage', '5000000', 'verified', 'local_document_confirmation'),
+  ]);
+  await signIn(page);
+  await page.getByRole('button', { name: 'Documents' }).click();
+  await expect(page.getByText('Verified facts').locator('..').getByText('2')).toBeVisible();
+  await expect(page.getByText('Added to Financial Memory')).toBeVisible();
+  await page.getByRole('button', { name: /Ask Artha about this/ }).click();
+  await expect(page.getByLabel('Ask about your finances')).toHaveValue('Help me understand the financial information I confirmed from my documents.');
 });
 
 test('registration UI requires a strong password and does not expose verification secrets', async ({ page }) => {
@@ -155,6 +211,13 @@ test('Ask Artha starts as simple chat and requests advanced details only when ne
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByText('I need a little more information')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Tell me about the future you want to plan for' })).toBeVisible();
+  await expect(page.getByText('Inflation rate you want to use')).toHaveCount(0);
+  await expect(page.getByText('Return rate you want to test')).toHaveCount(0);
+  await expect(page.getByText('Withdrawal rate you want to use')).toHaveCount(0);
+  const expenseHelp = page.getByRole('button', { name: 'Explain Monthly living expenses (₹)' });
+  await expect(expenseHelp).toBeVisible();
+  await expenseHelp.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Your regular monthly spending today');
 });
 
 async function signIn(page: Page) {
@@ -253,14 +316,51 @@ test('planning action is persisted only through an explicit confirmation', async
     return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ plan_id: '88888888-8888-4888-8888-888888888888' }) });
   });
   await signIn(page);
-  await page.getByRole('button', { name: 'Plans' }).click();
-  await page.getByText('Compare and confirm a planning action').click();
+  await page.getByRole('button', { name: 'My Plan' }).click();
+  await expect(page.getByRole('heading', { name: 'Turn intentions into manageable actions' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create your first action' }).click();
   await page.getByLabel('Monthly amount (₹)').fill('5000');
-  await page.getByRole('button', { name: 'Calculate impact' }).click();
-  await expect(page.getByText('Based on your explicit feasibility and priority.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Create confirmed plan' })).toBeDisabled();
-  await page.getByLabel('I confirm this action should be added to my plan.').check();
-  await page.getByRole('button', { name: 'Create confirmed plan' }).click();
-  await expect(page.getByRole('status')).toContainText('added to the plan');
+  await page.getByRole('button', { name: 'Review action' }).click();
+  await expect(page.getByRole('button', { name: 'Confirm and add' })).toBeDisabled();
+  await page.getByLabel('I confirm this is the action I want added to My Plan.').check();
+  await page.getByRole('button', { name: 'Confirm and add' }).click();
+  await expect(page.getByRole('status')).toContainText('added to My Plan');
   expect(planPayload?.confirmation_id).toBe('77777777-7777-4777-8777-777777777777');
+});
+
+test('My Plan shows trusted progress and supports explicit check-ins and pause', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.unroute('**/api/v1/agent/planning/plans/active');
+  const action = {
+    action_id: '99999999-9999-4999-8999-999999999999', action_type: 'increase_monthly_savings',
+    monthly_amount: '5000.00', target_amount: '60000.00', currency: 'INR', status: 'active',
+    start_date: '2026-09-01', target_date: '2027-08-31', priority_label: 'high', difficulty_label: 'manageable',
+    rationale: 'Based on your choices.', impact: {}, progress: { progress_amount: '15000.00', target_amount: '60000.00', percentage: '25.00', currency: 'INR' },
+  };
+  await page.route('**/api/v1/agent/planning/plans/active', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ plan: { plan_id: 'plan-1', title: 'My financial action plan', created_at: '2026-09-01T00:00:00Z' }, summary: { active_count: 1, monthly_commitment: { amount: '5000.00', currency: 'INR' }, completed_count: 0 }, active_actions: [action], completed_actions: [], archived_actions: [], calculation_id: 'summary-1', version: 'action-tracking-v1', timestamp: '2026-09-04T00:00:00Z', assumptions: {}, limitations: ['Progress is based on check-ins'] }) }));
+  let checkInPayload: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/agent/planning/actions/*/check-ins', route => { checkInPayload = route.request().postDataJSON() as Record<string, unknown>; return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ progress: action.progress }) }); });
+  let statusPayload: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/agent/planning/actions/*/status', route => { statusPayload = route.request().postDataJSON() as Record<string, unknown>; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...action, status: 'paused' }) }); });
+  await signIn(page);
+  await page.getByRole('button', { name: 'My Plan' }).click();
+  await expect(page.getByText('25.00%')).toBeVisible();
+  await expect(page.locator('.action-body small').filter({ hasText: 'Based on your check-ins' })).toBeVisible();
+  await page.getByRole('button', { name: 'Check in' }).click();
+  await page.getByLabel('Amount completed (₹)').fill('5000');
+  await page.getByLabel('Note (optional)').fill('September transfer');
+  await page.getByRole('button', { name: 'Add check-in' }).click();
+  expect(checkInPayload?.amount).toBe('5000');
+  await page.getByRole('button', { name: 'Pause' }).click();
+  expect(statusPayload?.status).toBe('paused');
+});
+
+test('My Plan does not expose a raw active-plan 404', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.unroute('**/api/v1/agent/planning/plans/active');
+  await page.route('**/api/v1/agent/planning/plans/active', route => route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not Found' }) }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'My Plan' }).click();
+  await expect(page.getByRole('alert')).toContainText('My Plan is temporarily unavailable');
+  await expect(page.getByText('Not Found')).toHaveCount(0);
 });

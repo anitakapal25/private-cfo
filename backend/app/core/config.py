@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     external_model_provider: str | None = None
     external_model_approval_reference: str | None = None
     enable_public_registration: bool = False
+    enable_mfa: bool = True
     email_delivery_mode: str = "disabled"
     smtp_host: str | None = None
     smtp_port: int = 587
@@ -68,6 +69,8 @@ class Settings(BaseSettings):
                 "Financial integrations require an approved provider and release approval reference"
             )
         if self.environment.lower() in {"production", "staging", "pilot"}:
+            if not self.enable_mfa:
+                raise ValueError("MFA cannot be disabled outside development")
             if not self.jwt_secret or len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET of at least 32 characters is required")
             if not self.encryption_key:

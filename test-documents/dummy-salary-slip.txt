@@ -1,0 +1,16 @@
+SYNTHETIC TEST DOCUMENT - NOT A REAL FINANCIAL RECORD
+
+Artha Demo Technologies Private Limited
+Salary Slip - August 2026
+
+Employee: Demo Employee
+Employee ID: DEMO-001
+Basic Salary: INR 60,000.00
+House Rent Allowance: INR 24,000.00
+Other Allowance: INR 11,000.00
+Provident Fund Deduction: INR 7,200.00
+Professional Tax: INR 200.00
+
+Net Pay: INR 87,600.00
+
+Generated only for Private CFO local document testing.

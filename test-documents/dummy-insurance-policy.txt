@@ -1,0 +1,13 @@
+SYNTHETIC TEST DOCUMENT - NOT A REAL FINANCIAL RECORD
+
+Demo Life Insurance Policy Schedule
+
+Policyholder: Demo Employee
+Policy Reference: DEMO-POLICY-001
+Policy Type: Demonstration Term Cover
+Policy Term: 20 years
+Annual Premium: INR 12,000.00
+
+Sum Assured: INR 50,00,000.00
+
+Generated only for Private CFO local document testing.

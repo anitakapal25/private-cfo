@@ -1475,3 +1475,11 @@ Planning actions use `POST /api/v1/agent/planning/candidates` for deterministic 
 comparison and `POST /api/v1/agent/planning/plans` for confirmed persistence. Plan
 creation consumes a matching `create_action_plan` confirmation and rejects replay,
 expiry, payload changes and non-allowlisted action types.
+
+The read-first My Plan workflow exposes the authenticated active-plan summary at
+`GET /api/v1/agent/planning/plans/active`. Actions support explicit manual check-ins,
+details, confirmed edits, and audited status transitions through the
+`/planning/actions/{action_id}` routes. Progress is the Decimal sum of manual check-ins
+against the date-derived target and is capped at 100%; it is never inferred from
+unconfirmed financial data. Archival requires a fresh payload-bound confirmation and
+retains the action and check-in history.

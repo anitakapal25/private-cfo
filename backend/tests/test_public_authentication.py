@@ -45,6 +45,24 @@ def test_public_registration_requires_configured_smtp_delivery():
         )
 
 
+def test_mfa_cannot_be_disabled_outside_development():
+    with pytest.raises(ValueError, match="MFA cannot be disabled"):
+        Settings(
+            _env_file=None,
+            environment="production",
+            jwt_secret="x" * 32,
+            encryption_key="test-encryption-key",
+            database_url="postgresql://example/test",
+            enable_mfa=False,
+        )
+
+
+def test_mfa_can_be_disabled_for_local_development():
+    settings = Settings(_env_file=None, environment="development", enable_mfa=False)
+
+    assert settings.enable_mfa is False
+
+
 def test_smtp_delivery_uses_starttls_for_postmark_compatible_configuration(monkeypatch):
     calls: list[str] = []
 

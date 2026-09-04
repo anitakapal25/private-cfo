@@ -22,8 +22,46 @@ def test_parser_accepts_only_direct_allowlisted_monthly_label():
     assert values[0].confidence == Decimal("0.9000")
 
 
-def test_parser_does_not_infer_bank_balance_or_ambiguous_duplicate():
-    assert parse_candidate_values("bank_statement", "Closing balance: INR 50000") == []
+def test_parser_extracts_each_supported_document_type():
+    cases = (
+        ("bank_statement", "Closing balance: INR 50,000", "bank_account_balance", Decimal("50000.00")),
+        ("epf_statement", "Total EPF Balance: INR 5,34,500", "epf_balance", Decimal("534500.00")),
+        ("form_16", "Gross Salary: INR 11,40,000", "annual_gross_income", Decimal("1140000.00")),
+        ("insurance_policy", "Sum Assured: INR 50,00,000", "insurance_coverage", Decimal("5000000.00")),
+    )
+    for document_type, text, fact_type, amount in cases:
+        values = parse_candidate_values(document_type, text)
+        assert len(values) == 1
+        assert values[0].fact_type == fact_type
+        assert values[0].value == amount
+
+
+def test_bank_statement_extracts_separate_monthly_totals_for_the_stated_month():
+    values = parse_candidate_values(
+        "bank_statement",
+        "Statement Period: 01 August 2026 to 31 August 2026\n"
+        "Total Income Credits: INR 87,600.00\n"
+        "Total Living Expense Debits: INR 36,500.00\n"
+        "Total EMI Debits: INR 12,000.00\nClosing Balance: INR 1,59,100.00\n",
+    )
+    monthly = {value.fact_type: value for value in values if value.fact_type.startswith("monthly_")}
+    assert monthly["monthly_income"].value == Decimal("87600.00")
+    assert monthly["monthly_expenses"].value == Decimal("36500.00")
+    assert monthly["monthly_debt_payments"].value == Decimal("12000.00")
+    assert {value.period_start for value in monthly.values()} == {"2026-08-01"}
+
+
+def test_bank_statement_does_not_infer_expenses_without_a_direct_total():
+    values = parse_candidate_values(
+        "bank_statement",
+        "Statement Period: 01 August 2026 to 31 August 2026\n"
+        "05 August 2026 Rent payment INR 25,000.00\n"
+        "25 August 2026 Home loan EMI INR 12,000.00\nClosing Balance: INR 50,000.00\n",
+    )
+    assert all(not value.fact_type.startswith("monthly_") for value in values)
+
+
+def test_parser_rejects_ambiguous_duplicate():
     assert parse_candidate_values("salary_slip", "Net Pay: 100\nNet Salary: 200") == []
 
 
