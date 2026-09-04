@@ -29,10 +29,17 @@ and is consumed once. The original document remains unchanged on the user's syst
 Temporary extraction output is created with owner-only permissions and removed on both
 success and failure.
 
-Version 1 accepts PDF files up to 10 MB. It recognizes only an unambiguous net-pay label
-on a salary slip or sum-assured label on an insurance policy. Money remains a decimal
-string. Bank statements, Form 16, EPF statements, ambiguous labels and image-only PDFs
-produce no inferred financial fact. OCR is not enabled.
+Version 1 accepts PDF files up to 10 MB. It recognizes unambiguous direct labels:
+net pay on a salary slip, sum assured on an insurance policy, and closing balance plus
+separately reported income credits, living-expense debits and EMI debits on a
+single-calendar-month bank statement. It also recognizes closing balance on an EPF
+statement and gross salary on Form 16. Bank aggregates are presented as monthly income,
+expenses and debt-payment candidates for the stated month. Expenses must explicitly
+exclude EMI debits so the money-left calculation does not double count them. Individual
+transactions are not guessed or categorized. Document-specific bank, EPF, and annual-income facts remain separate;
+they are never inferred to be total assets, liquid assets, or monthly income. Money
+remains a decimal string. Ambiguous labels and image-only PDFs produce no inferred
+financial fact. OCR is not enabled.
 
 ClamAV, bubblewrap and pdftotext run from fixed system paths. Scanning or extraction
 failure stops processing. The extraction process has isolated namespaces, no network,

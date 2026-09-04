@@ -1,9 +1,11 @@
 """Deterministic, product-neutral planning action impact and ranking."""
 
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 PLANNER_VERSION = "planning-actions-v1"
+ACTION_TRACKING_VERSION = "action-tracking-v1"
 ALLOWED_ACTIONS = {
     "reduce_monthly_expenses": {"risk": Decimal("1"), "liquidity": Decimal("1")},
     "increase_monthly_savings": {"risk": Decimal("1"), "liquidity": Decimal("2")},
@@ -62,3 +64,25 @@ def rank_actions(actions: list[CandidateAction]) -> list[dict]:
             "planner_version": PLANNER_VERSION,
         })
     return sorted(ranked, key=lambda item: (Decimal(item["score"]), Decimal(item["monthly_amount"])), reverse=True)
+
+
+def inclusive_months(start_date: date, target_date: date) -> int:
+    if target_date < start_date:
+        raise ValueError("Target date must be on or after the start date")
+    return (target_date.year - start_date.year) * 12 + target_date.month - start_date.month + 1
+
+
+def calculate_action_target(monthly_amount: Decimal, start_date: date, target_date: date) -> dict:
+    if monthly_amount <= 0:
+        raise ValueError("Action amount must be positive")
+    months = inclusive_months(start_date, target_date)
+    target = (monthly_amount * months).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {"months": months, "target_amount": str(target), "currency": "INR"}
+
+
+def calculate_action_progress(check_ins: list[Decimal], target_amount: Decimal) -> dict:
+    if target_amount <= 0 or any(amount <= 0 for amount in check_ins):
+        raise ValueError("Progress inputs must be positive")
+    progress = sum(check_ins, Decimal("0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    percentage = min(Decimal("100"), (progress / target_amount * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return {"progress_amount": str(progress), "target_amount": str(target_amount.quantize(Decimal("0.01"))), "percentage": str(percentage), "currency": "INR"}

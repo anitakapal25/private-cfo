@@ -171,9 +171,32 @@ class PlannedAction(Base):
     rank = Column(Numeric(8, 4), nullable=False)
     rationale = Column(Text, nullable=False)
     impact = Column(JSONB, nullable=False)
-    status = Column(String(20), nullable=False, default="planned")
+    status = Column(String(20), nullable=False, default="active")
+    start_date = Column(Date, nullable=False)
+    target_date = Column(Date, nullable=False)
+    target_amount = Column(Numeric(20, 4), nullable=False)
+    priority_label = Column(String(12), nullable=False, default="medium")
+    difficulty_label = Column(String(12), nullable=False, default="manageable")
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"), onupdate=text("NOW()"), nullable=False)
+    completed_at = Column(DateTime(timezone=True))
+    archived_at = Column(DateTime(timezone=True))
     plan = relationship("ActionPlan", back_populates="actions")
+    check_ins = relationship("ActionCheckIn", back_populates="action", cascade="all, delete-orphan")
+
+
+class ActionCheckIn(Base):
+    __tablename__ = "action_check_ins"
+    __table_args__ = {"schema": "financial"}
+
+    check_in_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    action_id = Column(UUID(as_uuid=True), ForeignKey("financial.planned_actions.action_id"), nullable=False, index=True)
+    amount = Column(Numeric(20, 4), nullable=False)
+    currency = Column(String(12), nullable=False, default="INR")
+    check_in_date = Column(Date, nullable=False)
+    note = Column(String(240))
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    action = relationship("PlannedAction", back_populates="check_ins")
 
 
 class ProactiveReview(Base):

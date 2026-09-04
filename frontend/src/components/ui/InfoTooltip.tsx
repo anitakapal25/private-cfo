@@ -34,7 +34,12 @@ const InfoTooltip: React.FC<InfoTooltipProps> = ({ term, explanation, example })
   }, [open]);
 
   return (
-    <span className={`info-tooltip ${open ? 'is-open' : ''}`} ref={root}>
+    <span
+      className={`info-tooltip ${open ? 'is-open' : ''}`}
+      ref={root}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         type="button"
         className="info-tooltip-trigger"

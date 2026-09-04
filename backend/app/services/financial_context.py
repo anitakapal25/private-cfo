@@ -14,6 +14,7 @@ ALLOWED_FACT_TYPES = frozenset({
     "monthly_income", "monthly_expenses", "total_assets", "total_liabilities",
     "liquid_assets", "monthly_debt_payments", "debt_outstanding",
     "goal_target", "goal_current", "insurance_coverage",
+    "annual_gross_income", "bank_account_balance", "epf_balance",
 })
 MONTHLY_FACT_TYPES = frozenset({"monthly_income", "monthly_expenses", "monthly_debt_payments"})
 SNAPSHOT_FACT_TYPES = ALLOWED_FACT_TYPES - MONTHLY_FACT_TYPES

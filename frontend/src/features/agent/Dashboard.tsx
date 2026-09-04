@@ -15,6 +15,7 @@ const glossary: Record<string, GlossaryEntry> = {
   financial_review: { explanation: 'A check that points out information or decisions that may need your attention.' },
   goal: { explanation: 'Something you want to save or plan money for.', example: 'Building ₹5,00,000 for education.' },
   loan: { explanation: 'Money borrowed that you repay over time, usually with interest.', example: 'A home or vehicle loan paid every month.' },
+  cash_flow: { explanation: 'A view of the money coming in and going out over a period.', example: 'Monthly income compared with monthly spending.' },
 };
 
 const setupItems = [
@@ -61,6 +62,8 @@ const Dashboard: React.FC<DashboardProps> = ({ verifiedFacts, openReviews, docum
     .sort((a, b) => (b.period_start || b.observed_at).localeCompare(a.period_start || a.observed_at))[0];
   const missingSetup = setupItems.filter(item => !verifiedTypes.has(item.type));
   const isSetupComplete = missingSetup.length === 0;
+  const salaryDocumentConfirmed = verifiedFacts.some(fact => fact.fact_type === 'monthly_income' && fact.source_type === 'local_document_confirmation');
+  const insuranceDocumentConfirmed = verifiedFacts.some(fact => fact.fact_type === 'insurance_coverage' && fact.source_type === 'local_document_confirmation');
 
   if (!isSetupComplete) {
     const completed = setupItems.length - missingSetup.length;
@@ -75,14 +78,14 @@ const Dashboard: React.FC<DashboardProps> = ({ verifiedFacts, openReviews, docum
             return <li key={item.type} className={done ? 'complete' : ''}>{done ? <Check aria-hidden="true"/> : <Circle aria-hidden="true"/>}<span><strong><Term type={item.type}>{item.label}</Term></strong><small>{done ? 'Added and confirmed' : item.helper}</small></span></li>;
           })}</ul><Button type="button" onClick={() => onOpenFact(missingSetup[0].type)}>Add your details</Button></section>
           <section className="optional-documents" aria-labelledby="documents-title"><h4 id="documents-title">Optional documents</h4><p>Documents can help confirm some values. You can also enter everything manually.</p>
-            <div className="document-guide"><FileText/><span><strong>Salary slip PDF</strong><small>Can identify your take-home income</small></span></div>
-            <div className="document-guide"><FileText/><span><strong>Insurance policy PDF</strong><small>Can identify your insurance cover</small></span></div>
+            <div className={`document-guide ${salaryDocumentConfirmed ? 'complete' : ''}`}>{salaryDocumentConfirmed ? <Check aria-hidden="true"/> : <FileText aria-hidden="true"/>}<span><strong>Salary slip PDF</strong><small>{salaryDocumentConfirmed ? 'Reviewed and confirmed' : 'Can identify your take-home income'}</small></span></div>
+            <div className={`document-guide ${insuranceDocumentConfirmed ? 'complete' : ''}`}>{insuranceDocumentConfirmed ? <Check aria-hidden="true"/> : <FileText aria-hidden="true"/>}<span><strong>Insurance policy PDF</strong><small>{insuranceDocumentConfirmed ? 'Reviewed and confirmed' : 'Can identify your insurance cover'}</small></span></div>
             {documentReviewAvailable ? <Button type="button" variant="secondary" onClick={onOpenDocuments}><FolderLock/> Review on this device</Button> : <p className="document-unavailable">Document review is available in the supported desktop app. You can enter all details manually here.</p>}
             <p className="privacy-note"><ShieldCheck/> Your original PDF stays on this device. Only values you confirm are saved.</p>
           </section>
         </div>
       </article>
-      <article className="dashboard-card after-setup"><h3>What you can do after setup</h3><div><span>Understand where your money goes</span><span>Plan for your <Term type="goal">goals</Term></span><span>Review <Term type="loan">loans</Term> and monthly payments</span></div></article>
+      <article className="dashboard-card after-setup"><h3>What you can do after setup</h3><div><span><Term type="cash_flow">Understand where your money goes</Term></span><span>Plan for your <Term type="goal">goals</Term></span><span>Review <Term type="loan">loans</Term> and monthly payments</span></div></article>
     </section>;
   }
 

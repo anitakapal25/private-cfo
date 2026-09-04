@@ -25,12 +25,11 @@ class ExtractedCandidateValue:
     unit: str
     confidence: Decimal
     source_location: str
+    period_start: str | None = None
 
 
-# Only labels whose meaning maps directly to an existing financial fact are
-# accepted. Statement balances and annual figures are intentionally excluded:
-# a single account is not total liquid assets and annual/monthly conversion
-# requires period semantics that generic text extraction cannot prove.
+# Only direct, unambiguous labels are accepted. Document-specific balances remain
+# separate facts so one account or EPF balance is never mislabeled as a user's total.
 FIELD_PATTERNS: dict[str, tuple[tuple[str, str], ...]] = {
     "salary_slip": (
         ("monthly_income", r"(?im)^\s*(?:net\s+pay|net\s+salary|take[ -]?home\s+(?:pay|salary))\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
@@ -38,12 +37,37 @@ FIELD_PATTERNS: dict[str, tuple[tuple[str, str], ...]] = {
     "insurance_policy": (
         ("insurance_coverage", r"(?im)^\s*(?:sum\s+assured|coverage\s+amount)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
     ),
+    "bank_statement": (
+        ("bank_account_balance", r"(?im)^\s*(?:closing\s+balance|ending\s+balance)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+        ("monthly_income", r"(?im)^\s*(?:total\s+income\s+credits|total\s+salary\s+credits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+        ("monthly_expenses", r"(?im)^\s*(?:total\s+(?:living\s+)?expense\s+debits|total\s+non[ -]?emi\s+debits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+        ("monthly_debt_payments", r"(?im)^\s*(?:total\s+emi\s+debits|total\s+loan\s+payment\s+debits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+    ),
+    "epf_statement": (
+        ("epf_balance", r"(?im)^\s*(?:closing\s+balance|total\s+(?:epf|pf)\s+balance)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+    ),
+    "form_16": (
+        ("annual_gross_income", r"(?im)^\s*(?:gross\s+salary|gross\s+income)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$"),
+    ),
 }
 
 
 def parse_candidate_values(document_type: str, text: str) -> list[ExtractedCandidateValue]:
-    """Parse allowlisted labels without inferring, aggregating, or converting values."""
+    """Parse allowlisted labels without guessing transaction categories."""
     results: list[ExtractedCandidateValue] = []
+    statement_period = None
+    if document_type == "bank_statement":
+        period_match = re.search(
+            r"(?im)^\s*statement\s+period\s*[:\-]?\s*\d{1,2}\s+([a-z]+)\s+(\d{4})\s+to\s+\d{1,2}\s+([a-z]+)\s+(\d{4})\s*$",
+            text,
+        )
+        month_numbers = {name: index for index, name in enumerate(
+            ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), 1
+        )}
+        if period_match and period_match.group(1).lower() == period_match.group(3).lower() and period_match.group(2) == period_match.group(4):
+            month_number = month_numbers.get(period_match.group(1).lower())
+            if month_number:
+                statement_period = f"{period_match.group(2)}-{month_number:02d}-01"
     for fact_type, pattern in FIELD_PATTERNS.get(document_type, ()):
         matches = list(re.finditer(pattern, text))
         if len(matches) != 1:
@@ -62,6 +86,7 @@ def parse_candidate_values(document_type: str, text: str) -> list[ExtractedCandi
             unit="INR",
             confidence=Decimal("0.9000"),
             source_location=f"extracted text line {line_number}",
+            period_start=statement_period if fact_type.startswith("monthly_") else None,
         ))
     return results
 

@@ -1,16 +1,27 @@
 import React, { FormEvent, useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
+import InfoTooltip from '@/components/ui/InfoTooltip';
+import Toast from '@/components/ui/Toast';
 import { Bell, Check, CircleUserRound, Database, FolderLock, Home, LockKeyhole, LogOut, Menu, MessageSquareText, Send, ShieldCheck, Sparkles, Target } from 'lucide-react';
-import { ApiError, beginMfaEnrollment, confirmAction, confirmMfaEnrollment, confirmPasswordReset, createActionPlan, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, logout, rankPlanningActions, register, requestPasswordReset, runProactiveReviews, sendMessage, verifyEmail, verifyMfa, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type PlanningActionInput, type ProactiveReview, type RankedAction } from './api';
-import { discardLocalDocumentSelection, getLocalDocumentCapabilities, isDesktopHost, processLocalDocument, selectLocalDocument, type LocalDocumentCandidate, type LocalDocumentCapabilities, type LocalDocumentSelection } from './desktop';
+import { ApiError, beginMfaEnrollment, confirmMfaEnrollment, confirmPasswordReset, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, logout, register, requestPasswordReset, runProactiveReviews, sendMessage, verifyEmail, verifyMfa, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type ProactiveReview } from './api';
+import { discardLocalDocumentSelection, getLocalDocumentCapabilities, isDesktopHost, processLocalDocument, selectLocalDocument, type LocalDocumentCandidate, type LocalDocumentCapabilities, type LocalDocumentSelection, type SessionDocument } from './desktop';
 import Dashboard from './Dashboard';
 import FinancialMemory from './FinancialMemory';
+import DocumentsPage from './documents/DocumentsPage';
+import PlansPage from './plans/PlansPage';
 
 const emptyScenario = {
   current_age: '', target_age: '', current_monthly_lifestyle_expenses: '',
-  current_investable_corpus: '', monthly_contribution: '', annual_inflation_rate: '',
-  annual_return_rate: '', withdrawal_rate: '',
+  current_investable_corpus: '', monthly_contribution: '',
 };
+
+const scenarioFields = [
+  { key: 'current_age', label: 'Your current age', explanation: 'Your age today sets the starting point for the projection.', example: 'If you are 34 years old, enter 34.' },
+  { key: 'target_age', label: 'Age you want to plan for', explanation: 'The age when you want Artha to compare your projected savings with the estimated amount needed.', example: 'If you want to plan for age 50, enter 50.' },
+  { key: 'current_monthly_lifestyle_expenses', label: 'Monthly living expenses (₹)', explanation: 'Your regular monthly spending today, excluding amounts you invest or save.', example: 'Rent, groceries, utilities and travel total ₹45,000.' },
+  { key: 'current_investable_corpus', label: 'Savings and investments for this goal (₹)', explanation: 'Money already set aside that you want included in this financial-freedom projection.', example: 'Investments allocated to this goal total ₹8,50,000.' },
+  { key: 'monthly_contribution', label: 'Amount you plan to add each month (₹)', explanation: 'The amount you expect to contribute toward this goal every month.', example: 'You plan to invest ₹15,000 each month.' },
+] as const;
 
 const starter: AgentMessage = {
   message_id: 'welcome', role: 'assistant', created_at: new Date().toISOString(), blocks: [],
@@ -31,7 +42,8 @@ const friendlyFieldLabels: Record<string, string> = {
   monthly_income: 'Monthly income', monthly_expenses: 'Monthly expenses', total_assets: 'Total assets',
   total_liabilities: 'Total debt', liquid_assets: 'Money available quickly', monthly_debt_payments: 'Monthly loan payments',
   debt_outstanding: 'Total loan balance', goal_current: 'Amount saved toward your goal', goal_target: 'Your goal amount',
-  insurance_coverage: 'Current insurance cover',
+  insurance_coverage: 'Current insurance cover', annual_gross_income: 'Annual gross income from Form 16',
+  bank_account_balance: 'Bank account closing balance', epf_balance: 'EPF closing balance',
 };
 
 function Evidence({ block }: { block: AgentBlock }) {
@@ -40,11 +52,18 @@ function Evidence({ block }: { block: AgentBlock }) {
   }
   if (block.type === 'warning') return <div className="evidence warning">This request is outside the agent’s planning boundary.</div>;
   if (block.type === 'cloud_explanation') return <div className="evidence"><strong>Cloud-assisted explanation · {block.provider}</strong><p>{block.content}</p><small>Exact figures remain in the deterministic evidence card.</small></div>;
+  const rates = block.assumptions?.rates as Record<string, Record<string, string>> | undefined;
+  const rateLabels: Record<string, { label: string; explanation: string }> = {
+    annual_inflation_rate: { label: 'Inflation', explanation: 'Estimates how living costs may increase.' },
+    annual_return_rate: { label: 'Expected return', explanation: 'A product-neutral planning assumption, not a guaranteed investment return.' },
+    withdrawal_rate: { label: 'Withdrawal rate', explanation: 'Estimates annual retirement withdrawals; it is not a market price.' },
+  };
   return (
     <details className="evidence">
       <summary>Calculation evidence · {block.version}</summary>
       <pre>{JSON.stringify(block.result, null, 2)}</pre>
       <p>Calculation ID: {block.calculation_id}</p>
+      {rates && Object.keys(rates).length > 0 && <details className="assumption-details"><summary>Assumptions used</summary><ul>{Object.entries(rates).map(([key, rate]) => <li key={key}><strong>{rateLabels[key]?.label || key}: {(Number(rate.value) * 100).toFixed(1)}%</strong><span>{rateLabels[key]?.explanation}</span><small>{rate.methodology}</small><small>Effective {rate.effective_from} · reviewed {rate.reviewed_at} · review by {rate.review_by}</small><a href={rate.source_url} target="_blank" rel="noreferrer">View source</a></li>)}</ul></details>}
       {block.limitations?.map(item => <p key={item}>{item}</p>)}
     </details>
   );
@@ -71,14 +90,11 @@ const AgentPage: React.FC = () => {
   const [scenario, setScenario] = useState(emptyScenario);
   const [coverageTarget, setCoverageTarget] = useState('');
   const [facts, setFacts] = useState<FinancialFact[]>([]);
-  const [factType, setFactType] = useState('monthly_income');
-  const [planAction, setPlanAction] = useState<PlanningActionInput>({ action_type: 'increase_monthly_savings', monthly_amount: '', feasibility: '0.5', user_priority: '0.5' });
-  const [rankedActions, setRankedActions] = useState<RankedAction[]>([]);
-  const [planConfirmed, setPlanConfirmed] = useState(false);
+  const [factType, setFactType] = useState<string>();
   const [reviews, setReviews] = useState<ProactiveReview[]>([]);
   const [documentType, setDocumentType] = useState('salary_slip');
   const [localSelection, setLocalSelection] = useState<LocalDocumentSelection>();
-  const [localCandidates, setLocalCandidates] = useState<LocalDocumentCandidate[]>([]);
+  const [sessionDocuments, setSessionDocuments] = useState<SessionDocument[]>([]);
   const desktopHost = isDesktopHost();
   const [localCapabilities, setLocalCapabilities] = useState<LocalDocumentCapabilities>();
   const [chatPending, setChatPending] = useState(false);
@@ -95,6 +111,12 @@ const AgentPage: React.FC = () => {
       .then(setLocalCapabilities)
       .catch(() => setLocalCapabilities({ available: false, platform: 'unknown', scanner_available: false, sandbox_available: false, pdf_text_available: false, limitations: ['Local document security checks are unavailable'] }));
   }, [desktopHost]);
+
+  useEffect(() => {
+    if (!statusMessage) return;
+    const timeout = window.setTimeout(() => setStatusMessage(''), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [statusMessage]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -117,12 +139,12 @@ const AgentPage: React.FC = () => {
 
   const clearLocalDocumentState = async () => {
     await discardLocalSelection();
-    setLocalCandidates([]);
   };
 
   const reportError = (reason: unknown, fallback: string) => {
     if (reason instanceof ApiError && reason.status === 401) {
       void clearLocalDocumentState();
+      setSessionDocuments([]);
       setToken(''); setConversationId(undefined); setMessages([starter]);
     }
     setError(reason instanceof Error ? reason.message : fallback);
@@ -197,6 +219,7 @@ const AgentPage: React.FC = () => {
     try { await logout(token); }
     catch { /* The server may already have revoked the session. */ }
     await clearLocalDocumentState();
+    setSessionDocuments([]);
     setToken(''); setConversationId(undefined); setMessages([starter]);
   };
 
@@ -215,26 +238,34 @@ const AgentPage: React.FC = () => {
     setPending(true); setError('');
     try {
       const result = await processLocalDocument(localSelection.selection_token, documentType);
-      setLocalCandidates(result.candidates.map(candidate => ({ ...candidate, status: 'candidate' })));
+      const candidates = result.candidates.map(candidate => ({ ...candidate, status: 'candidate' as const }));
+      setSessionDocuments(current => [{
+        document_id: crypto.randomUUID(), display_name: localSelection.display_name,
+        file_size_bytes: localSelection.file_size_bytes, document_type: documentType,
+        processed_at: new Date().toISOString(), candidates,
+      }, ...current]);
       setLocalSelection(undefined);
-      setStatusMessage(result.candidates.length ? 'Local extraction completed. Review every candidate before confirmation.' : 'Local extraction completed without an eligible financial candidate.');
+      setStatusMessage(result.candidates.length
+        ? 'Local extraction completed. Review every candidate before confirmation.'
+        : 'The document was processed locally, but no supported financial field was found. No data was saved.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'The local document could not be processed.'); }
     finally { setPending(false); }
   };
 
   const decideLocalCandidate = async (candidate: LocalDocumentCandidate, decision: 'confirm' | 'reject') => {
     if (decision === 'reject') {
-      setLocalCandidates(current => current.map(item => item.evidence_id === candidate.evidence_id ? { ...item, status: 'rejected' } : item));
+      setSessionDocuments(current => current.map(document => ({ ...document, candidates: document.candidates.map(item => item.evidence_id === candidate.evidence_id ? { ...item, status: 'rejected' } : item) })));
+      setStatusMessage('The extracted value was not added to Financial Memory.');
       return;
     }
     setPending(true); setError(''); setStatusMessage('');
     try {
       const fact = await createFinancialFact(token, candidate.fact_type, candidate.value, {
         sourceType: 'local_document_confirmation', sourceId: candidate.evidence_id,
-        confidence: candidate.confidence,
+        confidence: candidate.confidence, periodStart: candidate.period_start,
       });
       await decideFinancialFact(token, fact.fact_id, 'confirm');
-      setLocalCandidates(current => current.map(item => item.evidence_id === candidate.evidence_id ? { ...item, status: 'confirmed' } : item));
+      setSessionDocuments(current => current.map(document => ({ ...document, candidates: document.candidates.map(item => item.evidence_id === candidate.evidence_id ? { ...item, status: 'confirmed' } : item) })));
       setFacts(await listFinancialFacts(token));
       setStatusMessage('Only the confirmed structured value was saved. The document stayed on this device.');
     } catch (reason) { reportError(reason, 'The local candidate could not be confirmed.'); }
@@ -259,29 +290,6 @@ const AgentPage: React.FC = () => {
     finally { setPending(false); }
   };
 
-  const compareAction = async (event: FormEvent) => {
-    event.preventDefault(); setPending(true); setError(''); setPlanConfirmed(false);
-    try { setRankedActions(await rankPlanningActions(token, [planAction])); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : 'The action could not be compared.'); }
-    finally { setPending(false); }
-  };
-
-  const savePlan = async () => {
-    if (!planConfirmed || rankedActions.length === 0) return;
-    setPending(true); setError(''); setStatusMessage('');
-    try {
-      const activeConversation = conversationId ?? await createConversation(token);
-      setConversationId(activeConversation);
-      const title = 'My confirmed financial freedom actions';
-      const actionPayload = { title, actions: [planAction] };
-      const confirmationId = await confirmAction(token, activeConversation, 'create_action_plan', actionPayload);
-      await createActionPlan(token, title, [planAction], confirmationId);
-      setPlanConfirmed(false);
-      setStatusMessage('Your confirmed action was added to the plan.');
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'The plan could not be created.'); }
-    finally { setPending(false); }
-  };
-
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const content = draft.trim();
@@ -297,9 +305,6 @@ const AgentPage: React.FC = () => {
         current_monthly_lifestyle_expenses: scenario.current_monthly_lifestyle_expenses,
         current_investable_corpus: scenario.current_investable_corpus,
         monthly_contribution: scenario.monthly_contribution,
-        annual_inflation_rate: scenario.annual_inflation_rate,
-        annual_return_rate: scenario.annual_return_rate,
-        withdrawal_rate: scenario.withdrawal_rate,
       } : undefined;
       const selectedCoverageTarget = coverageRequested ? coverageTarget || undefined : undefined;
       const retryable = { conversationId: activeConversation, clientRequestId: crypto.randomUUID(), content, scenario: freedomScenario, coverageTarget: selectedCoverageTarget };
@@ -361,10 +366,10 @@ const AgentPage: React.FC = () => {
   const openReviews = reviews.filter(review => review.status === 'open');
   const navItems: Array<{ id: WorkspaceSection; label: string; icon: React.ReactNode }> = [
     { id: 'overview', label: 'Overview', icon: <Home/> }, { id: 'ask', label: 'Ask Artha', icon: <MessageSquareText/> },
-    { id: 'memory', label: 'Financial memory', icon: <Database/> }, { id: 'plans', label: 'Plans', icon: <Target/> },
+    { id: 'memory', label: 'Financial memory', icon: <Database/> }, { id: 'plans', label: 'My Plan', icon: <Target/> },
     { id: 'documents', label: 'Documents', icon: <FolderLock/> }, { id: 'reviews', label: 'Reviews', icon: <Sparkles/> },
   ];
-  const selectSection = (section: WorkspaceSection) => { setActiveSection(section); setMobileNavOpen(false); setError(''); };
+  const selectSection = (section: WorkspaceSection) => { setActiveSection(section); setMobileNavOpen(false); setError(''); setStatusMessage(''); };
   const openFactEntry = (type: string) => { setFactType(type); selectSection('memory'); };
   const openAsk = (prompt?: string) => { if (prompt) setDraft(prompt); selectSection('ask'); };
   const continueFollowUp = () => {
@@ -375,36 +380,35 @@ const AgentPage: React.FC = () => {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#workspace-content">Skip to main content</a>
-      <aside className={`app-sidebar ${mobileNavOpen ? 'open' : ''}`}><div><div className="app-logo"><ShieldCheck/><span>Artha</span></div><nav aria-label="Primary navigation">{navItems.map(item => <button type="button" key={item.id} className={activeSection === item.id ? 'active' : ''} onClick={() => selectSection(item.id)}>{item.icon}<span>{item.label}</span>{item.id === 'reviews' && openReviews.length > 0 && <b>{openReviews.length}</b>}</button>)}</nav></div><div className="sidebar-footer"><ShieldCheck/><span>Private by design</span></div></aside>
+      <aside className={`app-sidebar ${mobileNavOpen ? 'open' : ''}`}><div><div className="app-logo"><ShieldCheck/><span>Artha</span></div><nav aria-label="Primary navigation">{navItems.map(item => <button type="button" key={item.id} className={activeSection === item.id ? 'active' : ''} onClick={() => { if (item.id === 'memory') setFactType(undefined); selectSection(item.id); }}>{item.icon}<span>{item.label}</span>{item.id === 'reviews' && openReviews.length > 0 && <b>{openReviews.length}</b>}</button>)}</nav></div><div className="sidebar-footer"><ShieldCheck/><span>Private by design</span></div></aside>
       <header className="app-header"><button type="button" className="menu-button" aria-label="Toggle navigation" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(value => !value)}><Menu/></button><h1>Financial Freedom Agent</h1><div className="header-actions"><span className="data-chip"><Check/> Data verified</span><button type="button" className="icon-button" aria-label="Notifications"><Bell/></button><span className="avatar"><CircleUserRound/></span><button type="button" className="sign-out" onClick={() => { void signOut(); }}><LogOut/><span>Sign out</span></button></div></header>
+      {(error || statusMessage) && <aside className="app-toast-region" aria-label="Notifications">
+        {error && <Toast tone="error" message={error} onDismiss={() => setError('')} action={retryableMessage && !pending ? <button type="button" className="retry-button" onClick={retryMessage}>Retry request</button> : undefined}/>
+        }
+        {statusMessage && <Toast tone="success" message={statusMessage} onDismiss={() => setStatusMessage('')}/>
+        }
+      </aside>}
       <main id="workspace-content" className={`app-main section-${activeSection}`}>
       <section className="mobile-section-title"><p className="eyebrow">PRIVATE CFO</p><h2>{navItems.find(item => item.id === activeSection)?.label}</h2></section>
-      {activeSection === 'overview' && <Dashboard verifiedFacts={verifiedFacts} openReviews={openReviews} documentReviewAvailable={Boolean(desktopHost && localCapabilities?.available)} onOpenFact={openFactEntry} onOpenDocuments={() => selectSection('documents')} onOpenReviews={() => selectSection('reviews')} onAsk={openAsk}/>}
-      <section className="boundary">Ask in your own words. Artha uses information you confirmed and will ask when something important is missing.</section>
-      <details className="scenario-card"><summary>Local document review ({localCandidates.filter(candidate => candidate.status === 'candidate').length} awaiting confirmation)</summary><p>Your document never leaves this device. The desktop processor scans and extracts it locally; only a value you explicitly confirm is sent to your verified financial memory.</p>{desktopHost ? <>{localCapabilities && !localCapabilities.available && <div className="evidence warning" role="alert"><strong>Local document processing is blocked</strong>{localCapabilities.limitations.map(item => <p key={item}>{item}</p>)}</div>}<div className="fact-form"><label>Document type<select value={documentType} onChange={event => { void clearLocalDocumentState(); setDocumentType(event.target.value); }}><option value="salary_slip">Salary slip</option><option value="form_16">Form 16</option><option value="bank_statement">Bank statement</option><option value="epf_statement">EPF statement</option><option value="insurance_policy">Insurance policy</option></select></label><Button type="button" disabled={pending || !localCapabilities?.available} onClick={chooseLocalDocument}>Choose PDF from this device</Button>{localSelection && <div className="document-candidate"><strong>{localSelection.display_name}</strong><small>{localSelection.file_size_bytes} bytes · selected locally · path not exposed to the webview</small><div className="fact-actions"><Button type="button" disabled={pending} onClick={processSelectedDocument}>Scan and extract locally</Button><button type="button" disabled={pending} onClick={() => void discardLocalSelection()}>Discard selection</button></div></div>}</div>{localCandidates.length === 0 ? <p>No local candidates awaiting review.</p> : <ul className="fact-list">{localCandidates.map(candidate => { const conflict = facts.find(fact => fact.fact_type === candidate.fact_type && fact.verification_status === 'verified' && (fact.value !== candidate.value || fact.unit !== candidate.unit)); return <li key={candidate.evidence_id}><span>{candidate.fact_type.replace(/_/g, ' ')}</span><strong>{candidate.unit} {candidate.value}</strong><small>Local candidate · confidence {candidate.confidence} · {candidate.source_location}</small>{conflict && <p role="alert">Conflict: the current verified value is {conflict.unit} {conflict.value}, observed {new Date(conflict.observed_at).toLocaleDateString()}.</p>}{candidate.status === 'candidate' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideLocalCandidate(candidate, 'confirm')}>Confirm structured value</button><button type="button" disabled={pending} onClick={() => decideLocalCandidate(candidate, 'reject')}>Reject</button></div>}<small>Status: {candidate.status}</small></li>; })}</ul>}</> : <div className="evidence warning"><strong>Desktop application required</strong><p>Local document processing is unavailable in the browser. No upload will be sent to the server.</p></div>}</details>
-      <details className="scenario-card"><summary>Proactive financial reviews ({reviews.filter(review => review.status === 'open').length} open)</summary><p>Reviews are deterministic notifications. They never change your records or plan.</p><Button type="button" disabled={pending} onClick={refreshReviews}>Run review now</Button>{reviews.length === 0 ? <p>No review findings.</p> : <ul className="fact-list">{reviews.map(review => <li key={review.review_id}><span>{review.finding_type.replace(/_/g, ' ')}</span><small>{review.severity} · {review.status} · {review.rule_version}</small><details><summary>Evidence</summary><pre>{JSON.stringify(review.evidence, null, 2)}</pre></details>{review.status === 'open' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'acknowledge')}>Acknowledge</button><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'dismiss')}>Dismiss</button></div>}</li>)}</ul>}</details>
-      {activeSection === 'memory' && <FinancialMemory token={token} facts={facts} initialField={factType} onFactsChanged={async () => setFacts(await listFinancialFacts(token))}/>}
-      <details className="scenario-card"><summary>Compare and confirm a planning action</summary><p>These are conditional cash-flow actions, not named-product recommendations or guaranteed outcomes.</p><form className="fact-form" onSubmit={compareAction}><label>Action<select value={planAction.action_type} onChange={event => setPlanAction(current => ({ ...current, action_type: event.target.value as PlanningActionInput['action_type'] }))}><option value="increase_monthly_savings">Increase monthly savings</option><option value="reduce_monthly_expenses">Reduce monthly expenses</option><option value="increase_debt_payment">Increase debt payment</option></select></label><label>Monthly amount (₹)<input type="number" min="0.01" step="0.01" required value={planAction.monthly_amount} onChange={event => setPlanAction(current => ({ ...current, monthly_amount: event.target.value }))}/></label><label>Feasibility (0–1)<input type="number" min="0" max="1" step="0.1" value={planAction.feasibility} onChange={event => setPlanAction(current => ({ ...current, feasibility: event.target.value }))}/></label><label>Your priority (0–1)<input type="number" min="0" max="1" step="0.1" value={planAction.user_priority} onChange={event => setPlanAction(current => ({ ...current, user_priority: event.target.value }))}/></label><Button disabled={pending}>Calculate impact</Button></form>{rankedActions.map(action => <div className="evidence" key={action.action_type}><strong>{action.action_type.replace(/_/g, ' ')}</strong><pre>{JSON.stringify(action.impact, null, 2)}</pre><p>{action.rationale}</p></div>)}{rankedActions.length > 0 && <><label className="scenario-confirm"><input type="checkbox" checked={planConfirmed} onChange={event => setPlanConfirmed(event.target.checked)}/> I confirm this action should be added to my plan.</label><Button type="button" disabled={!planConfirmed || pending} onClick={savePlan}>Create confirmed plan</Button></>}</details>
-      <section className="quick-prompts" aria-label="Planning questions"><button type="button" onClick={() => setDraft('Show my debt and EMI metrics')}>Debt metrics</button><button type="button" onClick={() => setDraft('Show my 12-month cash flow forecast')}>Cash-flow forecast</button><button type="button" onClick={() => setDraft('Show my goal progress')}>Goal progress</button></section>
+      {activeSection === 'overview' && <Dashboard verifiedFacts={verifiedFacts} openReviews={openReviews} documentReviewAvailable={Boolean(desktopHost && localCapabilities?.available)} onOpenFact={openFactEntry} onOpenDocuments={() => selectSection('documents')} onOpenReviews={() => selectSection('reviews')} onAsk={openAsk}/>
+      }
+      {activeSection === 'documents' && <DocumentsPage desktopHost={desktopHost} capabilities={localCapabilities} selection={localSelection} documentType={documentType} documents={sessionDocuments} facts={facts} pending={pending} onChoose={() => void chooseLocalDocument()} onDiscard={() => void discardLocalSelection()} onProcess={() => void processSelectedDocument()} onDocumentTypeChange={setDocumentType} onCandidateDecision={(candidate, decision) => void decideLocalCandidate(candidate, decision)} onAskArtha={openAsk}/>
+      }
+      {activeSection === 'reviews' && <><section className="boundary">Reviews are deterministic notifications. They never change your records or plan.</section><details className="scenario-card" open><summary>Proactive financial reviews ({reviews.filter(review => review.status === 'open').length} open)</summary><Button type="button" disabled={pending} onClick={refreshReviews}>Run review now</Button>{reviews.length === 0 ? <p>No review findings.</p> : <ul className="fact-list">{reviews.map(review => <li key={review.review_id}><span>{review.finding_type.replace(/_/g, ' ')}</span><small>{review.severity} · {review.status} · {review.rule_version}</small><details><summary>Evidence</summary><pre>{JSON.stringify(review.evidence, null, 2)}</pre></details>{review.status === 'open' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'acknowledge')}>Acknowledge</button><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'dismiss')}>Dismiss</button></div>}</li>)}</ul>}</details></>}
+      {activeSection === 'memory' && <FinancialMemory token={token} facts={facts} documents={sessionDocuments} initialField={factType} onFactsChanged={async () => setFacts(await listFinancialFacts(token))} onAsk={openAsk} onOpenDocuments={() => selectSection('documents')}/>
+      }
+      {activeSection === 'plans' && <PlansPage token={token} conversationId={conversationId} onConversationCreated={setConversationId} onAsk={openAsk}/>
+      }
+      {activeSection === 'ask' && <><section className="boundary">Ask in your own words. Artha uses information you confirmed and will ask when something important is missing.</section><section className="quick-prompts" aria-label="Planning questions"><button type="button" onClick={() => setDraft('Show my debt and EMI metrics')}>Debt metrics</button><button type="button" onClick={() => setDraft('Show my 12-month cash flow forecast')}>Cash-flow forecast</button><button type="button" onClick={() => setDraft('Show my goal progress')}>Goal progress</button><button type="button" onClick={() => setDraft('Help me prepare a budgeting action for My Plan')}>Prepare an action</button></section>
       <section className="conversation" aria-live="polite">
         {messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><span className="message-role">{message.role === 'assistant' ? 'Private CFO' : 'You'}</span><p>{message.content}</p>{message.blocks.map((block, index) => <Evidence key={`${message.message_id}-${index}`} block={block}/>)}</article>)}
         {pending && <article className="message assistant"><span className="message-role">Private CFO</span><p>Reviewing your verified financial context…</p></article>}
       </section>
-      {showScenario && <section className="scenario-card chat-followup-card" aria-labelledby="scenario-title"><p className="eyebrow">ARTHA NEEDS THESE DETAILS</p><h2 id="scenario-title">Tell me about the future you want to plan for</h2><p>These values and rates must come from you. I will use them only for the calculation you requested.</p><div className="scenario-grid">
-        {[
-          ['current_age', 'Your current age'], ['target_age', 'Age you want to plan for'],
-          ['current_monthly_lifestyle_expenses', 'Monthly living expenses (₹)'],
-          ['current_investable_corpus', 'Savings and investments for this goal (₹)'],
-          ['monthly_contribution', 'Amount you plan to add each month (₹)'],
-          ['annual_inflation_rate', 'Inflation rate you want to use (decimal)'],
-          ['annual_return_rate', 'Return rate you want to test (decimal)'],
-          ['withdrawal_rate', 'Withdrawal rate you want to use (decimal)'],
-        ].map(([key, label]) => <label key={key}>{label}<input required type="number" step="any" value={scenario[key as keyof typeof scenario]} onChange={event => { setScenario(current => ({ ...current, [key]: event.target.value })); setScenarioConfirmed(false); }}/></label>)}
-      </div><label className="scenario-confirm"><input type="checkbox" checked={scenarioConfirmed} onChange={event => setScenarioConfirmed(event.target.checked)}/> I confirm these are the values and assumptions I want Artha to use.</label><Button type="button" disabled={!scenarioConfirmed || Object.values(scenario).some(value => value.trim() === '')} onClick={continueFollowUp}>Continue my question</Button></section>}
-      {coverageRequested && <section className="scenario-card chat-followup-card" aria-labelledby="coverage-title"><p className="eyebrow">ARTHA NEEDS ONE DETAIL</p><h2 id="coverage-title">What insurance cover amount do you want to compare?</h2><p>Choose the comparison amount yourself. Artha will not recommend a policy or decide the amount for you.</p><label>Amount to compare (₹)<input type="number" min="0" step="0.01" value={coverageTarget} onChange={event => setCoverageTarget(event.target.value)}/></label><Button type="button" disabled={!coverageTarget} onClick={continueFollowUp}>Continue my question</Button></section>}
-      {error && <div className="agent-error" role="alert">{error}{retryableMessage && !pending && <button type="button" className="retry-button" onClick={retryMessage}>Retry request</button>}</div>}
-      {statusMessage && <div className="agent-success" role="status">{statusMessage}</div>}
-      <form className="composer" onSubmit={submit}><label htmlFor="agent-message" className="sr-only">Ask about your finances</label><textarea id="agent-message" value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask about your finances…" maxLength={4000}/>{chatPending ? <Button type="button" onClick={() => requestController.current?.abort()}>Cancel</Button> : <Button className="send-button" aria-label="Send" disabled={pending}><Send/><span>Send</span></Button>}</form>
+      {showScenario && <section className="scenario-card chat-followup-card" aria-labelledby="scenario-title"><p className="eyebrow">ARTHA NEEDS THESE DETAILS</p><h2 id="scenario-title">Tell me about the future you want to plan for</h2><p>Provide only your personal details. Artha will use current reviewed planning assumptions for inflation, expected return, and withdrawals.</p><div className="scenario-grid">
+        {scenarioFields.map(field => <label key={field.key}><span className="scenario-label">{field.label}<InfoTooltip term={field.label} explanation={field.explanation} example={field.example}/></span><input required type="number" step="any" value={scenario[field.key]} onChange={event => { setScenario(current => ({ ...current, [field.key]: event.target.value })); setScenarioConfirmed(false); }}/></label>)}
+      </div><label className="scenario-confirm"><input type="checkbox" checked={scenarioConfirmed} onChange={event => setScenarioConfirmed(event.target.checked)}/> I confirm these personal values are correct for this projection.</label><Button type="button" disabled={!scenarioConfirmed || Object.values(scenario).some(value => value.trim() === '')} onClick={continueFollowUp}>Continue my question</Button></section>}
+      {coverageRequested && <section className="scenario-card chat-followup-card" aria-labelledby="coverage-title"><p className="eyebrow">ARTHA NEEDS ONE DETAIL</p><h2 id="coverage-title">What insurance cover amount do you want to compare?</h2><p>Choose the comparison amount yourself. Artha will not recommend a policy or decide the amount for you.</p><label><span className="scenario-label">Amount to compare (₹)<InfoTooltip term="insurance comparison amount" explanation="The cover amount you want compared with your currently confirmed insurance cover." example="Compare your current cover with ₹1,00,00,000."/></span><input type="number" min="0" step="0.01" value={coverageTarget} onChange={event => setCoverageTarget(event.target.value)}/></label><Button type="button" disabled={!coverageTarget} onClick={continueFollowUp}>Continue my question</Button></section>}
+      <form className="composer" onSubmit={submit}><label htmlFor="agent-message" className="sr-only">Ask about your finances</label><textarea id="agent-message" value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask about your finances…" maxLength={4000}/>{chatPending ? <Button type="button" onClick={() => requestController.current?.abort()}>Cancel</Button> : <Button className="send-button" aria-label="Send" disabled={pending}><Send/><span>Send</span></Button>}</form></>}
       <footer className="app-disclaimer"><ShieldCheck/> Planning guidance, not investment, tax, or insurance advice.</footer>
       </main>
     </div>

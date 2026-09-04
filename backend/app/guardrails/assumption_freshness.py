@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 
 
 class StaleAssumptionError(ValueError):
@@ -14,6 +15,10 @@ class VersionedAssumption:
     effective_from: date
     review_by: date
     source_url: str
+    value: Decimal | None = None
+    version: str | None = None
+    reviewed_at: date | None = None
+    methodology: str | None = None
 
 
 def require_current_assumption(
@@ -28,4 +33,3 @@ def require_current_assumption(
         raise StaleAssumptionError(
             f"Assumption {assumption.identifier} expired for review on {assumption.review_by.isoformat()}"
         )
-

@@ -39,6 +39,8 @@ struct LocalCandidate {
     confidence: String,
     source_location: String,
     source_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    period_start: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -260,46 +262,85 @@ fn normalize_money(raw: &str) -> Option<String> {
 }
 
 fn parse_candidates(document_type: &str, text: &str) -> Vec<LocalCandidate> {
-    let (fact_type, pattern) = match document_type {
-        "salary_slip" => (
+    let patterns = match document_type {
+        "salary_slip" => vec![(
             "monthly_income",
             r"(?im)^\s*(?:net\s+pay|net\s+salary|take[ -]?home\s+(?:pay|salary))\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
-        ),
-        "insurance_policy" => (
+        )],
+        "insurance_policy" => vec![(
             "insurance_coverage",
             r"(?im)^\s*(?:sum\s+assured|coverage\s+amount)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
-        ),
+        )],
+        "bank_statement" => vec![
+            (
+                "bank_account_balance",
+                r"(?im)^\s*(?:closing\s+balance|ending\s+balance)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+            ),
+            (
+                "monthly_income",
+                r"(?im)^\s*(?:total\s+income\s+credits|total\s+salary\s+credits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+            ),
+            (
+                "monthly_expenses",
+                r"(?im)^\s*(?:total\s+(?:living\s+)?expense\s+debits|total\s+non[ -]?emi\s+debits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+            ),
+            (
+                "monthly_debt_payments",
+                r"(?im)^\s*(?:total\s+emi\s+debits|total\s+loan\s+payment\s+debits)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+            ),
+        ],
+        "epf_statement" => vec![(
+            "epf_balance",
+            r"(?im)^\s*(?:closing\s+balance|total\s+(?:epf|pf)\s+balance)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+        )],
+        "form_16" => vec![(
+            "annual_gross_income",
+            r"(?im)^\s*(?:gross\s+salary|gross\s+income)\s*[:\-]?\s*(?:₹|rs\.?|inr)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)\s*$",
+        )],
         _ => return Vec::new(),
     };
-    let regex = match Regex::new(pattern) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    let matches: Vec<_> = regex.captures_iter(text).collect();
-    if matches.len() != 1 {
-        return Vec::new();
-    }
-    let matched = &matches[0];
-    let Some(value) = matched
-        .get(1)
-        .and_then(|item| normalize_money(item.as_str()))
-    else {
-        return Vec::new();
-    };
-    let line = text[..matched.get(0).map(|item| item.start()).unwrap_or(0)]
-        .bytes()
-        .filter(|value| *value == b'\n')
-        .count()
-        + 1;
-    vec![LocalCandidate {
-        evidence_id: Uuid::new_v4().to_string(),
-        fact_type: fact_type.to_string(),
-        value,
-        unit: "INR".to_string(),
-        confidence: "0.9000".to_string(),
-        source_location: format!("local extracted text line {line}"),
-        source_type: "local_document_confirmation".to_string(),
-    }]
+    let statement_period = Regex::new(r"(?im)^\s*statement\s+period\s*[:\-]?\s*\d{1,2}\s+([a-z]+)\s+(\d{4})\s+to\s+\d{1,2}\s+([a-z]+)\s+(\d{4})\s*$")
+        .ok().and_then(|regex| regex.captures(text)).and_then(|captures| {
+            let start_month = captures.get(1)?.as_str().to_ascii_lowercase();
+            let start_year = captures.get(2)?.as_str();
+            if start_month != captures.get(3)?.as_str().to_ascii_lowercase() || start_year != captures.get(4)?.as_str() { return None; }
+            let month = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]
+                .iter().position(|value| *value == start_month)? + 1;
+            Some(format!("{start_year}-{month:02}-01"))
+        });
+    patterns
+        .into_iter()
+        .filter_map(|(fact_type, pattern)| {
+            let regex = Regex::new(pattern).ok()?;
+            let matches: Vec<_> = regex.captures_iter(text).collect();
+            if matches.len() != 1 {
+                return None;
+            }
+            let matched = &matches[0];
+            let value = matched
+                .get(1)
+                .and_then(|item| normalize_money(item.as_str()))?;
+            let line = text[..matched.get(0).map(|item| item.start()).unwrap_or(0)]
+                .bytes()
+                .filter(|value| *value == b'\n')
+                .count()
+                + 1;
+            Some(LocalCandidate {
+                evidence_id: Uuid::new_v4().to_string(),
+                fact_type: fact_type.to_string(),
+                value,
+                unit: "INR".to_string(),
+                confidence: "0.9000".to_string(),
+                source_location: format!("local extracted text line {line}"),
+                source_type: "local_document_confirmation".to_string(),
+                period_start: if fact_type.starts_with("monthly_") {
+                    statement_period.clone()
+                } else {
+                    None
+                },
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -425,7 +466,24 @@ mod tests {
         assert_eq!(values[0].fact_type, "monthly_income");
         assert_eq!(values[0].value, "85000.00");
         assert!(parse_candidates("salary_slip", "Net Pay: 1\nNet Salary: 2").is_empty());
-        assert!(parse_candidates("bank_statement", "Closing balance: 500").is_empty());
+        let bank = parse_candidates("bank_statement", "Statement Period: 01 August 2026 to 31 August 2026\nTotal Income Credits: INR 87,600.00\nTotal Living Expense Debits: INR 36,500.00\nTotal EMI Debits: INR 12,000.00\nClosing balance: INR 1,59,100.00");
+        assert_eq!(bank[0].fact_type, "bank_account_balance");
+        assert_eq!(bank[1].fact_type, "monthly_income");
+        assert_eq!(bank[1].value, "87600.00");
+        assert_eq!(bank[2].fact_type, "monthly_expenses");
+        assert_eq!(bank[2].value, "36500.00");
+        assert_eq!(bank[3].fact_type, "monthly_debt_payments");
+        assert_eq!(bank[3].value, "12000.00");
+        assert!(bank[1..4]
+            .iter()
+            .all(|candidate| candidate.period_start.as_deref() == Some("2026-08-01")));
+        assert_eq!(bank[0].value, "159100.00");
+        let epf = parse_candidates("epf_statement", "Closing Balance: INR 5,34,500.00");
+        assert_eq!(epf[0].fact_type, "epf_balance");
+        assert_eq!(epf[0].value, "534500.00");
+        let form_16 = parse_candidates("form_16", "Gross Salary: INR 11,40,000.00");
+        assert_eq!(form_16[0].fact_type, "annual_gross_income");
+        assert_eq!(form_16[0].value, "1140000.00");
     }
 
     #[test]

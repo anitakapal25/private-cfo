@@ -7,6 +7,9 @@ export interface AgentBlock {
   version?: string;
   result?: Record<string, unknown>;
   assumptions?: Record<string, unknown>;
+  timestamp?: string;
+  provenance?: Array<Record<string, unknown>>;
+  rule_versions?: Record<string, string>;
   limitations?: string[];
   provider?: string;
   policy_bundle_version?: string;
@@ -40,9 +43,9 @@ export interface FreedomScenario {
   current_monthly_lifestyle_expenses: string;
   current_investable_corpus: string;
   monthly_contribution: string;
-  annual_inflation_rate: string;
-  annual_return_rate: string;
-  withdrawal_rate: string;
+  annual_inflation_rate?: string;
+  annual_return_rate?: string;
+  withdrawal_rate?: string;
 }
 
 export interface FinancialFact {
@@ -51,6 +54,8 @@ export interface FinancialFact {
   value: string;
   unit: string;
   source_type: string;
+  source_id?: string;
+  confidence?: string;
   verification_status: 'unverified' | 'conflict' | 'verified' | 'rejected' | 'superseded';
   period_kind?: 'monthly' | 'as_of';
   period_start?: string;
@@ -58,11 +63,28 @@ export interface FinancialFact {
   verified_at?: string;
 }
 
+export interface FinancialMemoryMonthlySummary {
+  status: 'complete' | 'incomplete';
+  month: string;
+  missing: string[];
+  money_left: { amount: string; currency: 'INR' } | null;
+  calculation_id?: string;
+  version?: string;
+  timestamp?: string;
+  assumptions?: Record<string, string>;
+  provenance?: Array<Record<string, string | null>>;
+  limitations?: string[];
+}
+
 export interface PlanningActionInput {
   action_type: 'reduce_monthly_expenses' | 'increase_monthly_savings' | 'increase_debt_payment';
   monthly_amount: string;
-  feasibility: string;
-  user_priority: string;
+  feasibility?: string;
+  user_priority?: string;
+  priority_label?: 'low' | 'medium' | 'high';
+  difficulty_label?: 'easy' | 'manageable' | 'difficult';
+  start_date?: string;
+  target_date?: string;
 }
 
 export interface RankedAction {
@@ -71,6 +93,36 @@ export interface RankedAction {
   score: string;
   rationale: string;
   impact: Record<string, unknown>;
+}
+
+export interface PlannedAction {
+  action_id: string;
+  action_type: PlanningActionInput['action_type'];
+  monthly_amount: string;
+  target_amount: string;
+  currency: 'INR';
+  status: 'active' | 'paused' | 'completed' | 'archived';
+  start_date: string;
+  target_date: string;
+  priority_label: 'low' | 'medium' | 'high';
+  difficulty_label: 'easy' | 'manageable' | 'difficult';
+  rationale: string;
+  impact: Record<string, unknown>;
+  progress: { progress_amount: string; target_amount: string; percentage: string; currency: 'INR' };
+  check_ins?: Array<{ check_in_id: string; amount: string; currency: 'INR'; check_in_date: string; note?: string; created_at: string }>;
+}
+
+export interface ActivePlanResponse {
+  plan: { plan_id: string; title: string; created_at: string } | null;
+  summary: { active_count: number; monthly_commitment: { amount: string; currency: 'INR' }; completed_count: number };
+  active_actions: PlannedAction[];
+  completed_actions: PlannedAction[];
+  archived_actions: PlannedAction[];
+  calculation_id: string;
+  version: string;
+  timestamp: string;
+  assumptions: Record<string, string>;
+  limitations: string[];
 }
 
 export interface ProactiveReview {
@@ -203,6 +255,10 @@ export function listFinancialFacts(token: string): Promise<FinancialFact[]> {
   return request<FinancialFact[]>('/financial-facts', token);
 }
 
+export function getFinancialMemoryMonthlySummary(token: string, month: string): Promise<FinancialMemoryMonthlySummary> {
+  return request<FinancialMemoryMonthlySummary>(`/financial-memory/monthly-summary?month=${encodeURIComponent(month)}`, token);
+}
+
 export function createFinancialFact(
   token: string, factType: string, value: string,
   options?: { sourceType?: 'user_statement' | 'local_document_confirmation'; sourceId?: string; confidence?: string; periodStart?: string },
@@ -267,6 +323,26 @@ export function createActionPlan(token: string, title: string, actions: Planning
   return request('/planning/plans', token, {
     method: 'POST', body: JSON.stringify({ title, actions, confirmation_id: confirmationId }),
   });
+}
+
+export function getActiveActionPlan(token: string): Promise<ActivePlanResponse> {
+  return request('/planning/plans/active', token);
+}
+
+export function getPlannedAction(token: string, actionId: string): Promise<PlannedAction> {
+  return request(`/planning/actions/${actionId}`, token);
+}
+
+export function createActionCheckIn(token: string, actionId: string, amount: string, checkInDate: string, note?: string): Promise<{ progress: PlannedAction['progress'] }> {
+  return request(`/planning/actions/${actionId}/check-ins`, token, { method: 'POST', body: JSON.stringify({ amount, check_in_date: checkInDate, note: note || undefined }) });
+}
+
+export function changePlannedActionStatus(token: string, actionId: string, status: PlannedAction['status'], confirmationId?: string): Promise<PlannedAction> {
+  return request(`/planning/actions/${actionId}/status`, token, { method: 'POST', body: JSON.stringify({ status, confirmation_id: confirmationId }) });
+}
+
+export function updatePlannedAction(token: string, actionId: string, input: Omit<PlanningActionInput, 'action_type' | 'feasibility' | 'user_priority'>, confirmationId: string): Promise<PlannedAction> {
+  return request(`/planning/actions/${actionId}`, token, { method: 'PATCH', body: JSON.stringify({ ...input, confirmation_id: confirmationId }) });
 }
 
 export function listProactiveReviews(token: string): Promise<ProactiveReview[]> {

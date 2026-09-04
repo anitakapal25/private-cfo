@@ -185,6 +185,7 @@ async def login_for_access_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> Any:
     email = normalize_email(form_data.username)
     enforce_rate_limit(db, "login_ip", request.client.host if request.client else "unknown", limit=20)
@@ -198,6 +199,11 @@ async def login_for_access_token(
     if not user.profile.email_verified:
         db.commit()
         return {"email_verification_required": True}
+    if not settings.enable_mfa:
+        user.last_login = now_utc()
+        tokens = issue_session(db, user)
+        db.commit()
+        return tokens
     credential = db.query(MfaCredential).filter(MfaCredential.user_id == user.user_id, MfaCredential.is_active.is_(True)).first()
     user.last_login = now_utc()
     db.commit()
