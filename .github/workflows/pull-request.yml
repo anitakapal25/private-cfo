@@ -21,6 +21,8 @@ jobs:
       ENABLE_EXTERNAL_WEBHOOKS: "false"
       ENABLE_FINANCIAL_INTEGRATIONS: "false"
       ENABLE_BACKGROUND_SYNC: "false"
+      ENABLE_EXTERNAL_MODEL: "false"
+      OPENAI_API_KEY: ""
     steps:
       - uses: actions/checkout@v6
         with:
@@ -31,7 +33,8 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install --requirement backend/requirements.txt
-      - run: python -m pytest -q
+      - name: Offline backend contracts and safety (synthetic data and mocked models)
+        run: python -m pytest -q -ra
         working-directory: backend
       - name: Parse all Python sources
         run: python -c "import ast,pathlib; [ast.parse(p.read_text(), filename=str(p)) for p in pathlib.Path('backend').rglob('*.py')]"
