@@ -63,6 +63,7 @@ Operational workflows:
 - [Calculation release](workflows/calculation-release.md)
 - [Regulatory update](workflows/regulatory-update.md)
 - [Model release](workflows/model-release.md)
+- [LLM agent development](workflows/llm-agent-development.md): workflow prepared; conversational implementation and hosting selection remain planned.
 - [Ecosystem integration release](workflows/ecosystem-release.md)
 - [Codex agent and skill audit](agent-skill-audit.md)
 - [Developer workflow and local quality gates](developer-workflow.md)
