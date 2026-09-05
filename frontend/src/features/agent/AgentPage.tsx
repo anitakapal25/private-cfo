@@ -2,7 +2,7 @@ import React, { FormEvent, useEffect, useRef, useState } from 'react';
 import Button from '@/components/ui/Button';
 import InfoTooltip from '@/components/ui/InfoTooltip';
 import Toast from '@/components/ui/Toast';
-import { Bell, Check, CircleUserRound, Database, FolderLock, Home, LockKeyhole, LogOut, Menu, MessageSquareText, Send, ShieldCheck, Sparkles, Target } from 'lucide-react';
+import { Bell, Check, CircleUserRound, Database, FolderLock, Home, Landmark, LockKeyhole, LogOut, Menu, MessageSquareText, Send, ShieldCheck, Sparkles, Target, WalletCards } from 'lucide-react';
 import { ApiError, beginMfaEnrollment, confirmMfaEnrollment, confirmPasswordReset, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, logout, register, requestPasswordReset, runProactiveReviews, sendMessage, verifyEmail, verifyMfa, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type ProactiveReview } from './api';
 import { discardLocalDocumentSelection, getLocalDocumentCapabilities, isDesktopHost, processLocalDocument, selectLocalDocument, type LocalDocumentCandidate, type LocalDocumentCapabilities, type LocalDocumentSelection, type SessionDocument } from './desktop';
 import Dashboard from './Dashboard';
@@ -44,7 +44,40 @@ const friendlyFieldLabels: Record<string, string> = {
   debt_outstanding: 'Total loan balance', goal_current: 'Amount saved toward your goal', goal_target: 'Your goal amount',
   insurance_coverage: 'Current insurance cover', annual_gross_income: 'Annual gross income from Form 16',
   bank_account_balance: 'Bank account closing balance', epf_balance: 'EPF closing balance',
+  'current age': 'Your current age', 'target age': 'Age you want to plan for',
+  'current monthly lifestyle expenses': 'Monthly living expenses',
+  'current investable corpus': 'Savings and investments for this goal',
+  'monthly contribution': 'Amount you plan to add each month',
+  'action type': 'What would you like to do: save more, reduce spending, or pay debt faster?',
+  'monthly action amount': 'How much would you like to put toward this action each month?',
+  'action start date': 'When would you like to start?',
+  'action target date': 'When would you like to complete this action?',
 };
+
+interface MoneyResult { amount: string; currency?: string }
+
+function isMoneyResult(value: unknown): value is MoneyResult {
+  return Boolean(value && typeof value === 'object' && 'amount' in value && typeof (value as MoneyResult).amount === 'string');
+}
+
+function formatInr(value: string): string {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return value;
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount);
+}
+
+function CalculationSummary({ result }: { result?: Record<string, unknown> }) {
+  if (!result) return <p>The calculation completed, but no displayable result was returned.</p>;
+  if (isMoneyResult(result.net_worth) && isMoneyResult(result.total_assets) && isMoneyResult(result.total_liabilities)) {
+    return <div className="friendly-calculation"><strong>Your net worth: {formatInr(result.net_worth.amount)}</strong><p>What you own minus what you owe.</p><dl><div><dt>Total assets</dt><dd>{formatInr(result.total_assets.amount)}</dd></div><div><dt>Total debt</dt><dd>{formatInr(result.total_liabilities.amount)}</dd></div></dl></div>;
+  }
+  if (typeof result.target_age === 'number' && isMoneyResult(result.projected_corpus) && isMoneyResult(result.required_corpus) && isMoneyResult(result.freedom_gap)) {
+    const onTrack = result.scenario_status === 'on_track';
+    return <div className={`friendly-calculation ${onTrack ? 'result-positive' : 'result-warning'}`}><strong>{onTrack ? `On track for age ${result.target_age}` : `Not yet on track for age ${result.target_age}`}</strong><p>{onTrack ? 'Your projected savings meet or exceed the estimated requirement.' : 'Your projected savings are below the estimated requirement.'}</p><dl><div><dt>Projected savings</dt><dd>{formatInr(result.projected_corpus.amount)}</dd></div><div><dt>Estimated amount needed</dt><dd>{formatInr(result.required_corpus.amount)}</dd></div>{!onTrack && <div><dt>Projected shortfall</dt><dd>{formatInr(result.freedom_gap.amount)}</dd></div>}{isMoneyResult(result.target_monthly_expenses) && <div><dt>Estimated monthly expenses at target age</dt><dd>{formatInr(result.target_monthly_expenses.amount)}</dd></div>}</dl></div>;
+  }
+  const displayItems = Object.entries(result).filter(([, value]) => isMoneyResult(value) || ['string', 'number'].includes(typeof value));
+  return <div className="friendly-calculation"><strong>Your calculation</strong><dl>{displayItems.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{isMoneyResult(value) ? formatInr(value.amount) : String(value)}</dd></div>)}</dl></div>;
+}
 
 function Evidence({ block }: { block: AgentBlock }) {
   if (block.type === 'missing_data') {
@@ -58,15 +91,15 @@ function Evidence({ block }: { block: AgentBlock }) {
     annual_return_rate: { label: 'Expected return', explanation: 'A product-neutral planning assumption, not a guaranteed investment return.' },
     withdrawal_rate: { label: 'Withdrawal rate', explanation: 'Estimates annual retirement withdrawals; it is not a market price.' },
   };
-  return (
-    <details className="evidence">
-      <summary>Calculation evidence · {block.version}</summary>
-      <pre>{JSON.stringify(block.result, null, 2)}</pre>
+  return <section className="evidence calculation-response" aria-label="Calculation result">
+    <CalculationSummary result={block.result}/>
+    <details className="calculation-details"><summary>Calculation details · {block.version}</summary>
       <p>Calculation ID: {block.calculation_id}</p>
       {rates && Object.keys(rates).length > 0 && <details className="assumption-details"><summary>Assumptions used</summary><ul>{Object.entries(rates).map(([key, rate]) => <li key={key}><strong>{rateLabels[key]?.label || key}: {(Number(rate.value) * 100).toFixed(1)}%</strong><span>{rateLabels[key]?.explanation}</span><small>{rate.methodology}</small><small>Effective {rate.effective_from} · reviewed {rate.reviewed_at} · review by {rate.review_by}</small><a href={rate.source_url} target="_blank" rel="noreferrer">View source</a></li>)}</ul></details>}
-      {block.limitations?.map(item => <p key={item}>{item}</p>)}
+      {block.limitations && block.limitations.length > 0 && <div className="calculation-limitations"><strong>Important to know</strong>{block.limitations.map(item => <p key={item}>{item}</p>)}</div>}
+      <details className="technical-result"><summary>Technical result</summary><pre>{JSON.stringify(block.result, null, 2)}</pre></details>
     </details>
-  );
+  </section>;
 }
 
 const AgentPage: React.FC = () => {
@@ -300,7 +333,8 @@ const AgentPage: React.FC = () => {
       const activeConversation = conversationId ?? await createConversation(token);
       setConversationId(activeConversation);
       const scenarioComplete = Object.values(scenario).every(value => value.trim() !== '');
-      const freedomScenario: FreedomScenario | undefined = showScenario && scenarioConfirmed && scenarioComplete ? {
+      const isFreedomQuestion = /financial freedom|retire early|retire at|freedom plan|achieve freedom/i.test(content);
+      const freedomScenario: FreedomScenario | undefined = scenarioConfirmed && scenarioComplete && (showScenario || isFreedomQuestion) ? {
         current_age: Number(scenario.current_age), target_age: Number(scenario.target_age),
         current_monthly_lifestyle_expenses: scenario.current_monthly_lifestyle_expenses,
         current_investable_corpus: scenario.current_investable_corpus,
@@ -389,17 +423,17 @@ const AgentPage: React.FC = () => {
         }
       </aside>}
       <main id="workspace-content" className={`app-main section-${activeSection}`}>
-      <section className="mobile-section-title"><p className="eyebrow">PRIVATE CFO</p><h2>{navItems.find(item => item.id === activeSection)?.label}</h2></section>
+      <section className="mobile-section-title"><span className="mobile-section-icon">{navItems.find(item => item.id === activeSection)?.icon}</span><div><p className="eyebrow">PRIVATE CFO</p><h2>{navItems.find(item => item.id === activeSection)?.label}</h2></div></section>
       {activeSection === 'overview' && <Dashboard verifiedFacts={verifiedFacts} openReviews={openReviews} documentReviewAvailable={Boolean(desktopHost && localCapabilities?.available)} onOpenFact={openFactEntry} onOpenDocuments={() => selectSection('documents')} onOpenReviews={() => selectSection('reviews')} onAsk={openAsk}/>
       }
       {activeSection === 'documents' && <DocumentsPage desktopHost={desktopHost} capabilities={localCapabilities} selection={localSelection} documentType={documentType} documents={sessionDocuments} facts={facts} pending={pending} onChoose={() => void chooseLocalDocument()} onDiscard={() => void discardLocalSelection()} onProcess={() => void processSelectedDocument()} onDocumentTypeChange={setDocumentType} onCandidateDecision={(candidate, decision) => void decideLocalCandidate(candidate, decision)} onAskArtha={openAsk}/>
       }
-      {activeSection === 'reviews' && <><section className="boundary">Reviews are deterministic notifications. They never change your records or plan.</section><details className="scenario-card" open><summary>Proactive financial reviews ({reviews.filter(review => review.status === 'open').length} open)</summary><Button type="button" disabled={pending} onClick={refreshReviews}>Run review now</Button>{reviews.length === 0 ? <p>No review findings.</p> : <ul className="fact-list">{reviews.map(review => <li key={review.review_id}><span>{review.finding_type.replace(/_/g, ' ')}</span><small>{review.severity} · {review.status} · {review.rule_version}</small><details><summary>Evidence</summary><pre>{JSON.stringify(review.evidence, null, 2)}</pre></details>{review.status === 'open' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'acknowledge')}>Acknowledge</button><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'dismiss')}>Dismiss</button></div>}</li>)}</ul>}</details></>}
+      {activeSection === 'reviews' && <><header className="section-page-heading"><Sparkles aria-hidden="true"/><div><p className="eyebrow">FINANCIAL CHECKS</p><h2>Reviews</h2></div></header><section className="boundary">Reviews are deterministic notifications. They never change your records or plan.</section><details className="scenario-card" open><summary>Proactive financial reviews ({reviews.filter(review => review.status === 'open').length} open)</summary><Button type="button" disabled={pending} onClick={refreshReviews}>Run review now</Button>{reviews.length === 0 ? <p>No review findings.</p> : <ul className="fact-list">{reviews.map(review => <li key={review.review_id}><span>{review.finding_type.replace(/_/g, ' ')}</span><small>{review.severity} · {review.status} · {review.rule_version}</small><details><summary>Evidence</summary><pre>{JSON.stringify(review.evidence, null, 2)}</pre></details>{review.status === 'open' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'acknowledge')}>Acknowledge</button><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'dismiss')}>Dismiss</button></div>}</li>)}</ul>}</details></>}
       {activeSection === 'memory' && <FinancialMemory token={token} facts={facts} documents={sessionDocuments} initialField={factType} onFactsChanged={async () => setFacts(await listFinancialFacts(token))} onAsk={openAsk} onOpenDocuments={() => selectSection('documents')}/>
       }
       {activeSection === 'plans' && <PlansPage token={token} conversationId={conversationId} onConversationCreated={setConversationId} onAsk={openAsk}/>
       }
-      {activeSection === 'ask' && <><section className="boundary">Ask in your own words. Artha uses information you confirmed and will ask when something important is missing.</section><section className="quick-prompts" aria-label="Planning questions"><button type="button" onClick={() => setDraft('Show my debt and EMI metrics')}>Debt metrics</button><button type="button" onClick={() => setDraft('Show my 12-month cash flow forecast')}>Cash-flow forecast</button><button type="button" onClick={() => setDraft('Show my goal progress')}>Goal progress</button><button type="button" onClick={() => setDraft('Help me prepare a budgeting action for My Plan')}>Prepare an action</button></section>
+      {activeSection === 'ask' && <><header className="section-page-heading"><MessageSquareText aria-hidden="true"/><div><p className="eyebrow">ASK ARTHA</p><h2>Talk about your finances</h2></div></header><section className="boundary">Ask in your own words. Artha uses information you confirmed and will ask when something important is missing.</section><section className="quick-prompts" aria-label="Planning questions"><button type="button" onClick={() => setDraft('Show my debt and EMI metrics')}><Landmark aria-hidden="true"/>Debt metrics</button><button type="button" onClick={() => setDraft('Show my 12-month cash flow forecast')}><WalletCards aria-hidden="true"/>Cash-flow forecast</button><button type="button" onClick={() => setDraft('Show my goal progress')}><Target aria-hidden="true"/>Goal progress</button><button type="button" onClick={() => setDraft('Help me prepare a budgeting action for My Plan')}><Sparkles aria-hidden="true"/>Prepare an action</button></section>
       <section className="conversation" aria-live="polite">
         {messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><span className="message-role">{message.role === 'assistant' ? 'Private CFO' : 'You'}</span><p>{message.content}</p>{message.blocks.map((block, index) => <Evidence key={`${message.message_id}-${index}`} block={block}/>)}</article>)}
         {pending && <article className="message assistant"><span className="message-role">Private CFO</span><p>Reviewing your verified financial context…</p></article>}

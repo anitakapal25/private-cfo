@@ -1,15 +1,45 @@
 import asyncio
+from uuid import uuid4
 
 import pytest
 
 from app.core.model_gateway import DisabledModelGateway, ModelDisabledError, ModelRequest
-from app.services.agent_orchestrator import Intent, classify_intent, explain_verified_memory_term
+from app.services.agent_orchestrator import AgentOrchestrator, Intent, _format_inr, classify_intent, explain_verified_memory_term
 from app.services.agent_policy import ToolAuthorizationError, authorize_tool
 from app.guardrails.regulatory_language import Decision, evaluate_financial_request
 
 
 def test_agent_classifies_financial_freedom_intent():
     assert classify_intent("How can I achieve financial freedom earlier?") is Intent.FREEDOM_PLAN
+
+
+@pytest.mark.parametrize("message", [
+    "Help me prepare a budgeting action for My Plan",
+    "planning goal",
+    "Create an action to save more",
+])
+def test_agent_classifies_my_plan_action_requests(message):
+    assert classify_intent(message) is Intent.PLANNING_ACTION
+
+
+def test_planning_action_request_gives_concrete_next_questions_without_looping():
+    answer = AgentOrchestrator(None, uuid4()).answer(
+        "Help me prepare a budgeting action for My Plan"
+    )
+
+    assert answer.intent is Intent.PLANNING_ACTION
+    assert "save more, reduce monthly spending, or pay debt faster" in answer.narrative
+    assert answer.blocks[0]["fields"] == [
+        "action type", "monthly action amount", "action start date", "action target date"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("amount", "formatted"),
+    [("400000.00", "₹4,00,000.00"), ("-3400000.00", "-₹34,00,000.00")],
+)
+def test_agent_formats_inr_for_plain_language_answers(amount, formatted):
+    assert _format_inr(amount) == formatted
 
 
 def test_agent_classifies_cash_flow_intent():

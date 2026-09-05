@@ -66,7 +66,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({
 
   return <section className="documents-page" aria-labelledby="documents-page-title">
     <header className="documents-header">
-      <div><p className="eyebrow">PRIVATE DOCUMENT REVIEW</p><h2 id="documents-page-title">Documents</h2><p>Give Artha your financial documents. Artha extracts important information — you decide what enters your Financial Memory.</p></div>
+      <div><p className="eyebrow">PRIVATE DOCUMENT REVIEW</p><h2 className="heading-with-icon page-title-with-icon" id="documents-page-title"><FolderLock aria-hidden="true"/>Documents</h2><p>Give Artha your financial documents. Artha extracts important information — you decide what enters your Financial Memory.</p></div>
       <div className="documents-header-actions"><Button type="button" onClick={startAdd} disabled={pending || !capabilities?.available}><FilePlus2/> Add document</Button><span className="private-processing"><LockKeyhole/> Private processing</span></div>
     </header>
 
@@ -92,13 +92,13 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({
     </article>
 
     <section className="document-review-section" aria-labelledby="review-title">
-      <div className="section-heading"><div><p className="eyebrow">NEEDS YOUR REVIEW</p><h3 id="review-title">What Artha found</h3></div>{needsReview > 0 && <span className="review-count"><CircleAlert/> {needsReview} {needsReview === 1 ? 'fact' : 'facts'}</span>}</div>
+      <div className="section-heading"><div><p className="eyebrow">NEEDS YOUR REVIEW</p><h3 className="heading-with-icon" id="review-title"><SearchCheck aria-hidden="true"/>What Artha found</h3></div>{needsReview > 0 && <span className="review-count"><CircleAlert/> {needsReview} {needsReview === 1 ? 'fact' : 'facts'}</span>}</div>
       {needsReview === 0 ? <div className="document-empty-state"><Check/><div><strong>Nothing needs your attention</strong><p>Newly extracted facts will appear here before anything enters Financial Memory.</p></div></div>
         : documents.filter(document => document.candidates.some(candidate => candidate.status === 'candidate')).map(document => <DocumentReviewCard key={document.document_id} document={document} facts={facts} pending={pending} onDecision={onCandidateDecision}/>)}
     </section>
 
     <section className="document-library" aria-labelledby="library-title">
-      <div className="section-heading"><div><p className="eyebrow">THIS APP SESSION</p><h3 id="library-title">Your documents</h3></div><small>Document names are kept only in this open desktop session.</small></div>
+      <div className="section-heading"><div><p className="eyebrow">THIS APP SESSION</p><h3 className="heading-with-icon" id="library-title"><FileText aria-hidden="true"/>Your documents</h3></div><small>Document names are kept only in this open desktop session.</small></div>
       {filteredDocuments.length === 0 ? <div className="document-empty-state muted"><FileText/><div><strong>No documents in this view</strong><p>Add a document or choose another filter.</p></div></div>
         : <div className="document-library-list">{filteredDocuments.map(document => <DocumentLibraryCard key={document.document_id} document={document}/>)}</div>}
     </section>
