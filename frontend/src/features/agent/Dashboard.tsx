@@ -1,7 +1,7 @@
 import React from 'react';
 import Button from '@/components/ui/Button';
 import InfoTooltip from '@/components/ui/InfoTooltip';
-import { Bot, Check, ChevronRight, Circle, FileText, FolderLock, ShieldCheck } from 'lucide-react';
+import { Banknote, BellRing, Bot, Check, ChevronRight, Circle, FileText, FolderLock, Landmark, ListChecks, ShieldCheck, Sparkles, Target, WalletCards } from 'lucide-react';
 import type { FinancialFact, ProactiveReview } from './api';
 
 interface GlossaryEntry { explanation: string; example?: string }
@@ -32,6 +32,12 @@ const reviewLabels: Record<string, string> = {
   goal_progress_decline: 'Progress toward a goal has decreased',
   overdue_action: 'A planned action may be overdue',
 };
+
+const askPrompts = [
+  { label: 'Can I reach my goal?', prompt: 'Show my goal progress', term: 'goal', glossaryKey: 'goal', icon: Target },
+  { label: 'Where does my money go?', prompt: 'Show my 12-month cash flow forecast', term: 'cash flow', glossaryKey: 'cash_flow', icon: WalletCards },
+  { label: 'Help me understand my loans', prompt: 'Show my debt and EMI metrics', term: 'loans', glossaryKey: 'loan', icon: Landmark },
+] as const;
 
 function Term({ type, children }: { type: string; children: React.ReactNode }) {
   const entry = glossary[type];
@@ -73,11 +79,11 @@ const Dashboard: React.FC<DashboardProps> = ({ verifiedFacts, openReviews, docum
         <div className="setup-card-heading"><span className="setup-heading-icon"><ShieldCheck/></span><div><h3 id="setup-title">Set up your financial picture</h3><p>{completed} of {setupItems.length} basics added</p></div></div>
         <progress value={completed} max={setupItems.length} aria-label={`${completed} of ${setupItems.length} basics added`}>{completed} of {setupItems.length}</progress>
         <div className="setup-columns">
-          <section aria-labelledby="details-title"><h4 id="details-title">Start with these details</h4><ul className="setup-checklist">{setupItems.map(item => {
+          <section aria-labelledby="details-title"><h4 className="heading-with-icon" id="details-title"><ListChecks aria-hidden="true"/>Start with these details</h4><ul className="setup-checklist">{setupItems.map(item => {
             const done = verifiedTypes.has(item.type);
             return <li key={item.type} className={done ? 'complete' : ''}>{done ? <Check aria-hidden="true"/> : <Circle aria-hidden="true"/>}<span><strong><Term type={item.type}>{item.label}</Term></strong><small>{done ? 'Added and confirmed' : item.helper}</small></span></li>;
           })}</ul><Button type="button" onClick={() => onOpenFact(missingSetup[0].type)}>Add your details</Button></section>
-          <section className="optional-documents" aria-labelledby="documents-title"><h4 id="documents-title">Optional documents</h4><p>Documents can help confirm some values. You can also enter everything manually.</p>
+          <section className="optional-documents" aria-labelledby="documents-title"><h4 className="heading-with-icon" id="documents-title"><FileText aria-hidden="true"/>Optional documents</h4><p>Documents can help confirm some values. You can also enter everything manually.</p>
             <div className={`document-guide ${salaryDocumentConfirmed ? 'complete' : ''}`}>{salaryDocumentConfirmed ? <Check aria-hidden="true"/> : <FileText aria-hidden="true"/>}<span><strong>Salary slip PDF</strong><small>{salaryDocumentConfirmed ? 'Reviewed and confirmed' : 'Can identify your take-home income'}</small></span></div>
             <div className={`document-guide ${insuranceDocumentConfirmed ? 'complete' : ''}`}>{insuranceDocumentConfirmed ? <Check aria-hidden="true"/> : <FileText aria-hidden="true"/>}<span><strong>Insurance policy PDF</strong><small>{insuranceDocumentConfirmed ? 'Reviewed and confirmed' : 'Can identify your insurance cover'}</small></span></div>
             {documentReviewAvailable ? <Button type="button" variant="secondary" onClick={onOpenDocuments}><FolderLock/> Review on this device</Button> : <p className="document-unavailable">Document review is available in the supported desktop app. You can enter all details manually here.</p>}
@@ -85,14 +91,14 @@ const Dashboard: React.FC<DashboardProps> = ({ verifiedFacts, openReviews, docum
           </section>
         </div>
       </article>
-      <article className="dashboard-card after-setup"><h3>What you can do after setup</h3><div><span><Term type="cash_flow">Understand where your money goes</Term></span><span>Plan for your <Term type="goal">goals</Term></span><span>Review <Term type="loan">loans</Term> and monthly payments</span></div></article>
+      <article className="dashboard-card after-setup"><h3 className="heading-with-icon"><Sparkles aria-hidden="true"/>What you can do after setup</h3><div><span><Term type="cash_flow">Understand where your money goes</Term></span><span>Plan for your <Term type="goal">goals</Term></span><span>Review <Term type="loan">loans</Term> and monthly payments</span></div></article>
     </section>;
   }
 
   const cards = [
-    { type: 'monthly_income', label: 'Monthly income' },
-    { type: 'total_assets', label: 'Total assets' },
-    { type: 'liquid_assets', label: 'Money available quickly' },
+    { type: 'monthly_income', label: 'Monthly income', icon: Banknote },
+    { type: 'total_assets', label: 'Total assets', icon: Landmark },
+    { type: 'liquid_assets', label: 'Money available quickly', icon: WalletCards },
   ];
   const missingHelpful = !verifiedTypes.has('liquid_assets');
   const nextAction = openReviews.length ? { title: 'Review an important update', text: 'A financial review needs your decision.', label: 'View review', action: onOpenReviews }
@@ -101,12 +107,12 @@ const Dashboard: React.FC<DashboardProps> = ({ verifiedFacts, openReviews, docum
 
   return <section className="overview-page">
     <header className="overview-heading"><div><p className="eyebrow">YOUR FINANCIAL HOME</p><h2>Good morning</h2><p>Here’s a simple view of your money today.</p></div><Button type="button" onClick={() => onAsk()}><Bot/> Ask Artha</Button></header>
-    <section aria-labelledby="have-title"><h3 className="dashboard-section-title" id="have-title">What do I have?</h3><div className="dashboard-summary">{cards.map(card => { const fact = latestVerified(card.type); return <article className="dashboard-card" key={card.type}><div className="dashboard-card-head"><Term type={card.type}>{card.label}</Term></div><strong className="metric-value">{formatFactValue(fact)}</strong><footer>{fact ? <><span className="verified-label"><Check/> Confirmed</span><small>Updated {new Date(fact.verified_at || fact.observed_at).toLocaleDateString()}</small></> : <button type="button" className="inline-link" onClick={() => onOpenFact(card.type)}>Add this value</button>}</footer></article>; })}</div></section>
+    <section aria-labelledby="have-title"><h3 className="dashboard-section-title heading-with-icon" id="have-title"><WalletCards aria-hidden="true"/>What do I have?</h3><div className="dashboard-summary">{cards.map(card => { const fact = latestVerified(card.type); const CardIcon = card.icon; return <article className="dashboard-card" key={card.type}><div className="dashboard-card-head"><span className="metric-icon"><CardIcon aria-hidden="true"/></span><Term type={card.type}>{card.label}</Term></div><strong className="metric-value">{formatFactValue(fact)}</strong><footer>{fact ? <><span className="verified-label"><Check/> Confirmed</span><small>Updated {new Date(fact.verified_at || fact.observed_at).toLocaleDateString()}</small></> : <button type="button" className="inline-link" onClick={() => onOpenFact(card.type)}>Add this value</button>}</footer></article>; })}</div></section>
     <div className="dashboard-grid guided-grid">
-      <article className="dashboard-card next-action-card"><p className="eyebrow">WHAT SHOULD I DO NEXT?</p><h3>{nextAction.title}</h3><p>{nextAction.text}</p><Button type="button" onClick={nextAction.action}>{nextAction.label}<ChevronRight/></Button></article>
-      <article className="dashboard-card attention-card"><h3>What needs attention? <InfoTooltip term="financial review" explanation={glossary.financial_review.explanation}/></h3>{openReviews.length ? openReviews.slice(0, 2).map(review => <button type="button" className="attention-row" key={review.review_id} onClick={onOpenReviews}><span className="attention-icon">!</span><span><strong>{reviewLabels[review.finding_type] || 'A financial check needs your attention'}</strong><small>Open review</small></span><ChevronRight/></button>) : <div className="clear-state"><Check/><span><strong>You are all caught up</strong><small>No reviews need a decision.</small></span></div>}</article>
+      <article className="dashboard-card next-action-card"><p className="eyebrow">WHAT SHOULD I DO NEXT?</p><h3 className="heading-with-icon"><Target aria-hidden="true"/>{nextAction.title}</h3><p>{nextAction.text}</p><Button type="button" onClick={nextAction.action}>{nextAction.label}<ChevronRight/></Button></article>
+      <article className="dashboard-card attention-card"><h3 className="heading-with-icon"><BellRing aria-hidden="true"/>What needs attention? <InfoTooltip term="financial review" explanation={glossary.financial_review.explanation}/></h3>{openReviews.length ? openReviews.slice(0, 2).map(review => <button type="button" className="attention-row" key={review.review_id} onClick={onOpenReviews}><span className="attention-icon">!</span><span><strong>{reviewLabels[review.finding_type] || 'A financial check needs your attention'}</strong><small>Open review</small></span><ChevronRight/></button>) : <div className="clear-state"><Check/><span><strong>You are all caught up</strong><small>No reviews need a decision.</small></span></div>}</article>
     </div>
-    <article className="dashboard-card ask-card"><h3>Ask Artha</h3><p>Choose a question in everyday language.</p><div className="overview-prompts"><span className="overview-prompt"><button onClick={() => onAsk('Show my goal progress')}>Can I reach my goal?</button><InfoTooltip term="goal" explanation={glossary.goal.explanation} example={glossary.goal.example}/></span><button onClick={() => onAsk('Show my 12-month cash flow forecast')}>Where does my money go?</button><span className="overview-prompt"><button onClick={() => onAsk('Show my debt and EMI metrics')}>Help me understand my loans</button><InfoTooltip term="loans" explanation={glossary.loan.explanation} example={glossary.loan.example}/></span></div></article>
+    <article className="dashboard-card ask-card"><h3 className="heading-with-icon"><Bot aria-hidden="true"/>Ask Artha</h3><p>Choose a question in everyday language.</p><div className="overview-prompts">{askPrompts.map(item => { const entry = glossary[item.glossaryKey]; const PromptIcon = item.icon; return <span className="overview-prompt" key={item.prompt}><button type="button" onClick={() => onAsk(item.prompt)}><PromptIcon aria-hidden="true"/>{item.label}</button><InfoTooltip term={item.term} explanation={entry.explanation} example={entry.example}/></span>; })}</div></article>
     <p className="dashboard-trust"><ShieldCheck/> Figures shown here use information you confirmed.</p>
   </section>;
 };
