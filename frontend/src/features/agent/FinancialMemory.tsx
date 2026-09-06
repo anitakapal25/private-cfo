@@ -108,7 +108,7 @@ const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, documen
   };
 
   return <section className="financial-memory" aria-labelledby="financial-memory-title">
-    <header className="memory-heading"><div><p className="eyebrow">FINANCIAL MEMORY</p><h2 id="financial-memory-title">What Artha knows about you</h2><p>Only information you’ve confirmed is used to give personalized insights. Artha never fills financial gaps with assumptions.</p></div><span className="memory-security"><ShieldCheck/> Only confirmed values are used</span></header>
+    <header className="memory-heading"><div><p className="eyebrow">FINANCIAL MEMORY</p><h2 className="heading-with-icon page-title-with-icon" id="financial-memory-title"><Database aria-hidden="true"/>What Artha knows about you</h2><p>Only information you’ve confirmed is used to give personalized insights. Artha never fills financial gaps with assumptions.</p></div><span className="memory-security"><ShieldCheck/> Only confirmed values are used</span></header>
     {message && <div className="agent-success" role="status">{message}</div>}
     {error && <div className="agent-error" role="alert">{error}</div>}
 
