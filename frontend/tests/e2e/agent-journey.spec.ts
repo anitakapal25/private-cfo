@@ -120,6 +120,9 @@ test('four verified basics including zero debt show the guided dashboard and acc
   await expect(page.getByRole('tooltip').filter({ hasText: 'money you receive' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('tooltip').filter({ hasText: 'money you receive' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'Explain goal' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Explain cash flow' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Explain loans' })).toBeVisible();
 });
 
 test('browser host never uploads local financial documents', async ({ page }) => {
@@ -257,7 +260,8 @@ test('user can cancel and safely retry the same idempotent agent request', async
   await expect(page.getByRole('alert')).toContainText('Response cancelled');
   await page.getByRole('button', { name: 'Retry request' }).click();
   await expect(page.getByText('Your verified calculation is ready.')).toBeVisible();
-  await page.getByText('Calculation evidence · test-v1').click();
+  await expect(page.getByText('Your calculation')).toBeVisible();
+  await page.getByText('Calculation details · test-v1').click();
   await expect(page.getByText('Calculation ID: 44444444-4444-4444-8444-444444444444')).toBeVisible();
   expect(requestIds).toHaveLength(2);
   expect(requestIds[0]).toBe(requestIds[1]);

@@ -45,6 +45,7 @@ class Intent(str, Enum):
     EMERGENCY_FUND = "emergency_fund"
     TAX = "tax"
     DOCUMENT = "document"
+    PLANNING_ACTION = "planning_action"
 
 
 @dataclass(frozen=True)
@@ -59,6 +60,11 @@ class AgentAnswer:
 
 def classify_intent(message: str) -> Intent:
     normalized = " ".join(message.lower().split())
+    if any(term in normalized for term in (
+        "budgeting action", "budget action", "prepare an action",
+        "planning action", "planning goal", "create an action",
+    )):
+        return Intent.PLANNING_ACTION
     if any(term in normalized for term in ("emergency fund", "emergency reserve")):
         return Intent.EMERGENCY_FUND
     if any(term in normalized for term in ("cash flow forecast", "forecast cash", "next 12 months")):
@@ -165,6 +171,20 @@ def _money(value: Decimal) -> dict[str, str]:
     return {"amount": str(value.quantize(Decimal("0.01"))), "currency": "INR"}
 
 
+def _format_inr(value: str) -> str:
+    amount = Decimal(value).quantize(Decimal("0.01"))
+    sign = "-" if amount < 0 else ""
+    whole, fraction = f"{abs(amount):.2f}".split(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        groups = []
+        while head:
+            groups.insert(0, head[-2:])
+            head = head[:-2]
+        whole = f"{','.join(groups)},{tail}"
+    return f"{sign}₹{whole}.{fraction}"
+
+
 class AgentOrchestrator:
     """Routes user intent to deterministic data/calculation tools only."""
 
@@ -212,6 +232,8 @@ class AgentOrchestrator:
             return self._cash_flow()
         if intent is Intent.FREEDOM_PLAN:
             return self._freedom_plan(freedom_inputs, freedom_assumption_metadata)
+        if intent is Intent.PLANNING_ACTION:
+            return self._planning_action_setup()
         if intent is Intent.DEBT_ANALYSIS:
             return self._debt_analysis()
         if intent is Intent.CASH_FLOW_FORECAST:
@@ -246,6 +268,21 @@ class AgentOrchestrator:
             blocks=[{"type": "missing_data", "fields": ["financial question or planning goal"]}],
         )
 
+    @staticmethod
+    def _planning_action_setup() -> AgentAnswer:
+        return AgentAnswer(
+            intent=Intent.PLANNING_ACTION,
+            narrative=(
+                "I can help you prepare a manageable action for My Plan. Choose whether you want "
+                "to save more, reduce monthly spending, or pay debt faster. Then provide the monthly "
+                "amount and the dates you want to work toward. Nothing will be added until you review "
+                "and confirm it in My Plan."
+            ),
+            blocks=[{"type": "missing_data", "fields": [
+                "action type", "monthly action amount", "action start date", "action target date",
+            ]}],
+        )
+
     def _net_worth(self) -> AgentAnswer:
         authorize_tool("calculate_net_worth", Intent.NET_WORTH.value)
         context = FinancialContextService(self.db, self.user_id).assemble("net_worth")
@@ -253,9 +290,14 @@ class AgentOrchestrator:
             return self._missing(Intent.NET_WORTH, list(context.missing), context.period_start)
         result = calculate_net_worth(Decimal(context.facts["total_assets"].value), Decimal(context.facts["total_liabilities"].value))
         record = self._record_calculation("net_worth", result, context=context)
+        net_worth = _format_inr(result["net_worth"]["amount"])
+        position = "negative" if Decimal(result["net_worth"]["amount"]) < 0 else "positive"
         return AgentAnswer(
             intent=Intent.NET_WORTH,
-            narrative="Your verified records produce the net-worth calculation shown below.",
+            narrative=(
+                f"Your current net worth is {net_worth}. This is a {position} net-worth "
+                "position, calculated from your confirmed assets minus your confirmed debt."
+            ),
             blocks=[self._calculation_block(record, result)],
             tool_name="calculate_net_worth",
             calculation_id=str(record.calculation_id),
@@ -327,9 +369,14 @@ class AgentOrchestrator:
         return AgentAnswer(
             intent=Intent.FREEDOM_PLAN,
             narrative=(
-                "This is your deterministic financial-freedom scenario based on the values and "
-                "personal values you confirmed and the reviewed assumptions shown in the evidence. "
-                "It is a planning projection, not a guarantee."
+                f"Based on this projection, you are on track to reach your target by age {freedom_inputs.target_age}. "
+                f"Your projected corpus is {_format_inr(result['projected_corpus']['amount'])}, compared with an estimated "
+                f"requirement of {_format_inr(result['required_corpus']['amount'])}. This is a planning projection, not a guarantee."
+                if result["scenario_status"] == "on_track" else
+                f"Based on this projection, you are not yet on track to reach financial freedom by age {freedom_inputs.target_age}. "
+                f"Your projected corpus is {_format_inr(result['projected_corpus']['amount'])}, compared with an estimated "
+                f"requirement of {_format_inr(result['required_corpus']['amount'])}, leaving a projected shortfall of "
+                f"{_format_inr(result['freedom_gap']['amount'])}. This calculation does not yet determine a later achievement age."
             ),
             blocks=[self._calculation_block(record, result)],
             tool_name="calculate_financial_freedom_projection",
@@ -403,7 +450,10 @@ class AgentOrchestrator:
     ) -> CalculationRecord:
         now = datetime.now(timezone.utc)
         provenance = context.provenance if context else []
-        limitations = ["Only confirmed facts and explicit scenario inputs are included", "This is planning information, not a guaranteed outcome"]
+        limitations = ["Only confirmed financial facts are included"]
+        if calculation_type == "financial_freedom_projection":
+            limitations.append("The projection also uses the personal scenario inputs you confirmed")
+        limitations.append("This is planning information, not a guaranteed outcome")
         record = CalculationRecord(
             calculation_id=uuid.uuid4(),
             user_id=self.user_id,

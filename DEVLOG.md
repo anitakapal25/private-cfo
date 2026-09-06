@@ -11,6 +11,19 @@ Track implementation progress for the Financial Freedom Copilot (ArthaOS) agent 
 - **Incremental delivery**: Each commit delivers testable, valuable functionality
 
 ## Current Status: Basic Agent Backend and Frontend Working
+
+### 2026-09-05: LLM agent workflow preparation
+
+- Prepared an isolated `feat/llm-agent` worktree with existing tracked changes recorded
+  separately as a baseline; the original workspace is preserved.
+- Added the provider-neutral development sequence and expanded model-release gates.
+- Extended offline CI reporting and added synthetic evaluation scenarios, with known
+  routing gaps explicitly marked as expected failures.
+- This entry records workflow preparation only. Conversational LLM orchestration,
+  expanded consent, hosting selection and live-provider evaluation remain planned.
+- External model use has not been enabled. See `docs/README.md` for authoritative
+  implementation status; older checklist entries below are historical context.
+
 - [x] Architecture documentation completed (`docs/architecture.md`)
 - [x] Technology stack selected (`docs/technology-stack.md`)
 - [x] Domain model defined (`docs/domain-model.md`)
