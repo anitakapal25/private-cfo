@@ -7,6 +7,24 @@
 
 ## Render pilot boundary
 
+### Separate free synthetic demo
+
+`render-free.yaml` defines a free web service and free PostgreSQL database for
+synthetic testing only. It does not replace the paid real-user pilot below.
+`backend/start_demo.py` runs migrations at startup (free services do not use the
+paid pre-deploy step), creates one non-admin `demo@example.com` account, preserves
+MFA, and forces external models, integrations, email and public registration off.
+Use the Render-generated `DEMO_PASSWORD` from the service's Environment page to
+sign in, then enroll an authenticator. Never put real financial data in this demo.
+Existing accounts/passwords are not reset at restart. Startup isolation is covered
+by `backend/tests/test_demo_startup.py`.
+
+Render's free database expires after 30 days and has no backups. Free web services
+sleep after inactivity. Keep the workspace without a payment method to avoid
+usage overage charges; do not upgrade compute plans. See
+[Render free limits](https://render.com/docs/free). Deployment evidence remains
+pending until the service has built and its readiness endpoint passes.
+
 `render.yaml` provisions the Singapore pilot API and a paid PostgreSQL database. The
 free database tier is prohibited because it has no managed backup or recovery
 capability. The pilot must not
