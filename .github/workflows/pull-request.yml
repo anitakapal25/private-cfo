@@ -15,8 +15,22 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: artha_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: artha_conversation_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U artha_test -d artha_conversation_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       ENVIRONMENT: test
+      DATABASE_URL: postgresql://artha_test@localhost:5432/artha_conversation_test
+      ARTHA_TEST_DATABASE_URL: postgresql://artha_test@localhost:5432/artha_conversation_test
       JWT_SECRET: ci-only-jwt-key-with-at-least-32-characters
       ENABLE_EXTERNAL_WEBHOOKS: "false"
       ENABLE_FINANCIAL_INTEGRATIONS: "false"
@@ -33,6 +47,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: python -m pip install --requirement backend/requirements.txt
+      - name: Rehearse migrations on disposable PostgreSQL
+        working-directory: backend
+        run: |
+          python -m alembic upgrade head
+          python -m alembic downgrade f4b7c2d9a101
+          python -m alembic upgrade head
       - name: Offline backend contracts and safety (synthetic data and mocked models)
         run: python -m pytest -q -ra
         working-directory: backend

@@ -1,0 +1,11 @@
+{
+  "version": "conversation-v1",
+  "reviewed_at": "2026-09-11",
+  "owner": "Engineering and privacy",
+  "records": [
+    {"name": "agent_conversations.conversation_state", "source": "validated server execution", "purpose": "bounded follow-up context", "classification": "confidential", "recipients": "authenticated user server; minimized topic/period to configured model", "retention": "inherits conversation retention; production duration pending approval", "deletion": "clear runtime state during authenticated conversation erasure", "operational_status": "internal deletion helper tested; end-user rights workflow pending"},
+    {"name": "agent_requests", "source": "authenticated message requests", "purpose": "idempotency and recovery", "classification": "confidential", "recipients": "authenticated backend only", "retention": "inherits conversation retention; no independent indefinite retention", "deletion": "internal owned-conversation cleanup and database cascade; backup expiry pending", "operational_status": "internal deletion helper tested; broader deletion workflow pending"},
+    {"name": "curated public education", "source": "reviewed official pages", "purpose": "sourced education", "classification": "public", "recipients": "application users", "retention": "version-controlled summaries; runtime expiry enforced", "deletion": "reviewed catalogue maintenance", "operational_status": "implemented"},
+    {"name": "staged source refresh", "source": "approved public URL", "purpose": "manual source review", "classification": "public untrusted", "recipients": "reviewer only; never model", "retention": "reviewer removes after review", "deletion": "remove task staging directory", "operational_status": "manual"}
+  ]
+}

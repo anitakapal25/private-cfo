@@ -1,7 +1,7 @@
 # ArthaOS Documentation Index and Current State
 
 **Status:** Authoritative documentation index  
-**Last reviewed:** 2026-08-30  
+**Last reviewed:** 2026-09-11
 **Next review:** 2026-09-30  
 **Owner:** Product and engineering leads
 
@@ -37,7 +37,7 @@ Status terms:
 | Account Aggregator | Blocked | Data model is not an RBI-AA integration and must not be represented as one |
 | External webhooks | Blocked by default | Requires explicit configuration; production-grade egress control remains pending |
 | Phase 3 ecosystem APIs | Blocked by default | Routers are not mounted without capability-specific configuration; provider, consent, privacy and operational release evidence remains pending |
-| AI agent | Partial | Phase 1 deterministic agent MVP is implemented with authenticated conversations, persisted runs, tool evidence, safety evaluations and confirmed freedom scenarios. Conversation-scoped cloud-assistance consent and an OpenAI boundary exist, but the external model remains disabled pending provider, privacy and model-release evidence |
+| AI agent | Partial | A separately flagged read-only conversational planner now composes typed tools, persists bounded state and request reservations, and serves dated curated education; live-model release evaluation remains pending.  Phase 1 deterministic agent MVP is implemented with authenticated conversations, persisted runs, tool evidence, safety evaluations and confirmed freedom scenarios. A configured OpenAI project may add a minimized, plain-language explanation automatically with `store: false`; deterministic evidence remains authoritative, while model release evidence and broader privacy operations remain release gates |
 | Audit trail | Partial | Agent runs, tool calls, calculations and sanitized audit events are persisted; broader mutation coverage remains pending |
 | DPDP operational compliance | Planned | Legal review, notices, consent lifecycle, rights handling and breach workflow are pending |
 
@@ -63,7 +63,7 @@ Operational workflows:
 - [Calculation release](workflows/calculation-release.md)
 - [Regulatory update](workflows/regulatory-update.md)
 - [Model release](workflows/model-release.md)
-- [LLM agent development](workflows/llm-agent-development.md): workflow prepared; conversational implementation and hosting selection remain planned.
+- [LLM agent development](workflows/llm-agent-development.md): bounded conversational implementation, curated sources and release procedure.
 - [Ecosystem integration release](workflows/ecosystem-release.md)
 - [Codex agent and skill audit](agent-skill-audit.md)
 - [Developer workflow and local quality gates](developer-workflow.md)

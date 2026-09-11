@@ -1,46 +1,44 @@
 # Model, Prompt and Tool Release Workflow
 
-**Status:** Required before enabling an external LLM  
-**Last reviewed:** 2026-09-05
-**Owner:** AI safety and product leads
+**Status:** Required release procedure; conversational live-provider approval pending
+**Last reviewed:** 2026-09-11
+**Owner:** AI safety and product
 
-1. Define allowed intents, prohibited actions, data fields and tool permissions.
-2. Verify that authenticated identity is injected server-side and unavailable for model override.
-3. Restrict tools with typed schemas, least privilege and per-resource authorization.
-4. Run prompt-injection, data-exfiltration, regulated-advice and tool-confusion evaluations.
-5. Verify that every financial number originates from a validated deterministic tool result.
-6. Test refusals, uncertainty, stale assumptions and low-confidence document data.
-7. Review provider data handling, retention, training use and regional processing terms.
-8. Approve a versioned model/prompt/tool bundle and deploy gradually.
-9. Monitor safety metrics and maintain immediate rollback and kill-switch capability.
+## Current implementation and policy
 
-## Conversational agent acceptance gates
+The application supports optional automatic explanations and a separately flagged
+read-only conversational planner. Both require configured provider eligibility.
+Conversational planning accepts typed requests; financial arithmetic and persisted
+facts remain application-owned. Composition accepts authorized evidence references
+only. See [development workflow](llm-agent-development.md) for exact runtime limits.
 
-The [development workflow](llm-agent-development.md) is prepared; the conversational
-LLM and its live-provider evaluation runner remain planned. Existing cloud consent
-authorizes evidence explanation and excludes raw messages. Do not reuse it to send
-questions or conversation history: approve a versioned notice, minimized fields,
-retention terms and renewed consent for the expanded purpose first.
+This personal project uses server-controlled automatic assistance with `store: false`.
+Legacy conversation-consent APIs do not gate automatic execution. Standard provider
+retention terms apply; do not claim Zero Data Retention or completed privacy operations.
 
-Before release, record executable evidence for each gate:
+## Mandatory evidence before enablement
 
-- Tool requests reject unknown names, invalid arguments, ownership overrides and
-  unconfirmed mutations; every executed tool has an audit record.
-- All displayed financial values resolve to authorized deterministic evidence.
-  Fabricated numbers, unknown references and unsupported claims fail validation.
-- Prompt injection, data exfiltration and tool-confusion cases fail closed across
-  questions, conversation context and tool output.
-- Product-selection paraphrases, including combined product categories, receive a
-  useful boundary response; safe educational questions remain answerable.
-- Missing or period-incompatible data produces focused questions and partial
-  evidence where possible; unverified statements cannot become calculation inputs.
-- Timeouts, malformed responses and exhausted call budgets yield bounded fallback.
-  Retries do not duplicate calculations, messages, confirmations or mutations.
-- Multi-turn state and consent remain isolated by authenticated user/conversation;
-  revoked or outdated consent prevents further cloud disclosure.
+1. Record the model, prompt, tool, source and policy versions plus allowed data fields.
+2. Run offline evaluations for tool authorization, cross-user isolation, period handling,
+   missing facts, injection, numerical fabrication, unknown references and stale rules.
+3. Run PostgreSQL retry/concurrency and migration acceptance, frontend browser journeys,
+   and existing backend/frontend/desktop checks. Explain every outstanding failure.
+4. Review actual provider data handling and operational notices. Preserve the no-document,
+   no-path, no-credential and product-neutral boundaries.
+5. Run the opt-in synthetic live evaluation with an explicit budget. Retain sanitized
+   results; inspect semantic routing errors, latency and model compatibility.
+6. Obtain an actual versioned approval record before setting release references and flags.
+7. Roll out gradually. Monitor sanitized tool outcomes, fallback frequency, source misses,
+   response latency and validation rejections. Exercise the rollback flag.
 
-Offline CI uses synthetic fixtures and mocked adapters. Known expected failures and
-catalogue-only scenarios are outstanding release work, even when PR CI is green.
-Run live-provider evaluations manually only after provider/privacy approval and an
-evaluation runner exist. Capture model, prompt, tool and policy versions, pass/fail
-results, approved cost limits and rollback evidence without sensitive transcripts.
+## Acceptance limits
+
+A passing JSON schema is not proof that a selected tool answers the user's question.
+Review representative conversational tasks and incorrect-but-valid tool selections.
+The current model cannot add arbitrary prose: the server resolves evidence references
+and renders deterministic explanations. More expressive composition needs additional
+claim-grounding evidence before release.
+
+Source review and tax-rule approval are separate. Reading a current official page
+cannot enable an expired calculator. Real financial documents and credentials remain
+subject to the blockers in the [documentation index](../README.md).

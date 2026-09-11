@@ -1,5 +1,11 @@
 export interface AgentBlock {
-  type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation';
+  type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation' | 'clarification' | 'sourced_explanation' | 'unsupported_coverage';
+  source_url?: string;
+  publisher?: string;
+  reviewed_at?: string;
+  review_by?: string;
+  published_at?: string | null;
+  locator?: string;
   fields?: string[];
   period_start?: string;
   code?: string;
@@ -34,6 +40,7 @@ export interface AgentMessage {
   role: 'user' | 'assistant';
   content: string;
   blocks: AgentBlock[];
+  model_used?: boolean;
   created_at: string;
 }
 
@@ -231,9 +238,9 @@ export async function createConversation(token: string): Promise<string> {
   return result.conversation_id;
 }
 
-export function sendMessage(token: string, conversationId: string, content: string, clientRequestId: string, freedomScenario?: FreedomScenario, coverageTarget?: string, signal?: AbortSignal, cloudAssistance = false): Promise<AgentMessage> {
+export function sendMessage(token: string, conversationId: string, content: string, clientRequestId: string, freedomScenario?: FreedomScenario, coverageTarget?: string, signal?: AbortSignal): Promise<AgentMessage> {
   return request<AgentMessage>(`/conversations/${conversationId}/messages`, token, {
-    method: 'POST', signal, body: JSON.stringify({ content, client_request_id: clientRequestId, freedom_scenario: freedomScenario, user_selected_coverage_target: coverageTarget || undefined, cloud_assistance: cloudAssistance }),
+    method: 'POST', signal, body: JSON.stringify({ content, client_request_id: clientRequestId, freedom_scenario: freedomScenario, user_selected_coverage_target: coverageTarget || undefined }),
   });
 }
 
@@ -241,9 +248,9 @@ export function getCloudAssistanceConsent(token: string, conversationId: string)
   return request<CloudAssistanceConsent>(`/conversations/${conversationId}/cloud-assistance`, token);
 }
 
-export function grantCloudAssistanceConsent(token: string, conversationId: string): Promise<CloudAssistanceConsent> {
+export function grantCloudAssistanceConsent(token: string, conversationId: string, noticeVersion: string): Promise<CloudAssistanceConsent> {
   return request<CloudAssistanceConsent>(`/conversations/${conversationId}/cloud-assistance`, token, {
-    method: 'POST', body: JSON.stringify({ privacy_notice_version: 'render-singapore-pilot-v1' }),
+    method: 'POST', body: JSON.stringify({ privacy_notice_version: noticeVersion }),
   });
 }
 

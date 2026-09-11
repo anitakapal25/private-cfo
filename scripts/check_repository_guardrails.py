@@ -1,6 +1,7 @@
 """Fail CI for common repository secret and unsafe-route regressions."""
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,6 +27,24 @@ def iter_text_files():
         yield path
 
 
+def is_ignored_local_file(root: Path, relative_path: str) -> bool:
+    """Only exempt a file when Git proves it is both untracked and ignored."""
+    try:
+        tracked = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", relative_path],
+            cwd=root, capture_output=True, timeout=5,
+        )
+        if tracked.returncode != 1:
+            return False
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--quiet", "--", relative_path],
+            cwd=root, capture_output=True, timeout=5,
+        )
+        return ignored.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def main() -> int:
     findings: list[str] = []
     for path in iter_text_files():
@@ -44,6 +63,8 @@ def main() -> int:
     forbidden_tracked_roots = (ROOT / "uploads", ROOT / ".env")
     for path in forbidden_tracked_roots:
         if path.is_file():
+            if path == ROOT / ".env" and is_ignored_local_file(ROOT, ".env"):
+                continue
             findings.append(f"{path.relative_to(ROOT)}: sensitive runtime file exists in repository")
 
     if findings:
@@ -56,4 +77,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

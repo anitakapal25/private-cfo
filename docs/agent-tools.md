@@ -1,9 +1,35 @@
 # Financial Freedom Copilot - AI and Tool Architecture
 
 **Status:** Target tool architecture; current Phase 1 agent is a typed deterministic orchestrator
-**Last reviewed:** 2026-08-30  
+**Last reviewed:** 2026-09-11
 **Current boundary:** Private agent routes derive `user_id` from the authenticated user. Intent-scoped tool policy and persistent agent/tool/calculation audit records are implemented. Message requests support conversation-scoped database idempotency for safe UI retry. Public research tools, external-LLM evaluation and broader mutation audit coverage remain planned.
 Phase 2 agent tools now include intent-scoped debt metrics, flat 12-month cash-flow forecasting, goal progress, explicit user-target insurance coverage comparison, confirmed product-neutral action plans, and deterministic proactive reviews. Document review is a desktop-local preprocessing boundary, not an agent upload tool: native ClamAV and sandboxed extraction produce conservative candidates, and only a user-confirmed structured fact with an opaque evidence UUID is submitted. Original documents, paths and extracted text are unavailable to the agent and backend.
+
+## Executable conversational tools
+
+The read-only executor in `backend/app/services/conversation_tools.py` wraps the
+existing deterministic calculators. The typed contracts in
+`backend/app/services/conversation_contracts.py` reject extra arguments and unknown
+names before execution. Identity, confirmed scenario values and coverage targets are
+injected by application code, never supplied by the model.
+
+Supported tools: net worth, monthly surplus, debt metrics, emergency coverage, goal
+progress, flat cash-flow forecast, explicit-target insurance gap, confirmed freedom
+projection, and `lookup_finance_topic`. Calendar periods require month-start dates.
+Public lookup accepts only a topic identifier and has no private-memory or network access.
+
+Results carry status, authorized evidence references, deterministic narrative, and
+calculation or source blocks. Composition selects only these references. Missing or
+expired evidence never becomes an invented value. Request/state persistence and
+runtime limits are described in the [development workflow](workflows/llm-agent-development.md).
+
+## Proposed contracts and examples below
+
+The remaining design catalogue is a future reference, not an executable registry.
+In particular the example server uploads, automatic action generation, default
+scenario assumptions, public research and tax workflows are not approved current flows.
+The implemented API additions at the end describe existing authenticated form operations;
+they are not model-callable mutation tools.
 
 ## Overview
 This document describes the AI agent and tool architecture for Financial Freedom Copilot (ArthaOS). The architecture follows the principle of having a primary financial agent that interacts with the system through well-defined, secure tools, ensuring that the LLM never has direct access to data or computational resources.

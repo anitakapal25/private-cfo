@@ -19,6 +19,7 @@ class Conversation(Base):
     status = Column(String(20), nullable=False, default="active")
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"), onupdate=text("NOW()"), nullable=False)
+    conversation_state = Column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     messages = relationship("ConversationMessage", back_populates="conversation", cascade="all, delete-orphan")
 
 
@@ -242,3 +243,20 @@ class AuditEvent(Base):
     outcome = Column(String(20), nullable=False)
     metadata_json = Column(JSONB, nullable=False, default=dict)
     created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+
+
+class ConversationRequest(Base):
+    __tablename__ = "agent_requests"
+    __table_args__ = (
+        Index("uq_agent_request_identity", "conversation_id", "client_request_id", unique=True),
+        {"schema": "financial"},
+    )
+    request_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("financial.agent_conversations.conversation_id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False)
+    client_request_id = Column(UUID(as_uuid=True), nullable=False)
+    payload_hash = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default="pending")
+    response = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=text("NOW()"), nullable=False)

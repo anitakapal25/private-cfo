@@ -7,7 +7,7 @@ import json
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
@@ -23,14 +23,16 @@ from app.services.financial_context import ALLOWED_FACT_TYPES, MONTHLY_FACT_TYPE
 from app.services.financial_engine import calculate_monthly_money_left
 from app.services.recommendation_planner import ACTION_TRACKING_VERSION, CandidateAction, calculate_action_progress, calculate_action_target, rank_actions
 from app.services.proactive_reviews import persist_reviews
-from app.guardrails.data_redaction import redact_sensitive
+from app.guardrails.data_redaction import redact_sensitive, sanitize_question
 from app.guardrails.assumption_freshness import StaleAssumptionError, require_current_assumption
 from app.guardrails.catalog import FINANCIAL_FREEDOM_ASSUMPTIONS
 
 router = APIRouter()
+MODEL_GATEWAY_FACTORY = OpenAIModelGateway
 MEMORY_MONTHLY_SUMMARY_VERSION = "financial-memory-monthly-v1"
 
 CLOUD_ASSISTANCE_CATEGORIES = (
+    "sanitized_current_question",
     "agent_intent",
     "verified_financial_facts",
     "deterministic_calculation_evidence",
@@ -130,6 +132,8 @@ class SendMessageRequest(BaseModel):
     user_selected_coverage_target: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=2
     )
+    # Deprecated client hint retained so older desktop builds remain compatible.
+    # The server determines automatic model eligibility from its own configuration.
     cloud_assistance: bool = False
 
 
@@ -139,6 +143,7 @@ class MessageResponse(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str
     blocks: list[dict[str, Any]]
+    model_used: bool
     created_at: datetime
 
 
@@ -186,9 +191,12 @@ def cloud_consent_response(consent: ModelConsent | None) -> CloudAssistanceConse
     )
 
 
-def minimized_model_request(db: Session, user_id: UUID, intent: str, blocks: list[dict[str, Any]]) -> ModelRequest:
+def minimized_model_request(
+    db: Session, user_id: UUID, sanitized_question: str, intent: str, blocks: list[dict[str, Any]],
+    *, include_financial_memory: bool = True,
+) -> ModelRequest:
     allowed_fact_types = CLOUD_ASSISTANCE_FACT_TYPES.get(intent, set())
-    facts = db.query(FinancialFact).filter(
+    facts = [] if not include_financial_memory else db.query(FinancialFact).filter(
         FinancialFact.user_id == user_id,
         FinancialFact.verification_status == "verified",
         FinancialFact.fact_type.in_(allowed_fact_types),
@@ -212,10 +220,20 @@ def minimized_model_request(db: Session, user_id: UUID, intent: str, blocks: lis
         for block in blocks if block.get("type") == "calculation"
     ]
     return ModelRequest(
+        sanitized_question=sanitize_question(sanitized_question),
         intent=intent,
         redacted_context=redact_sensitive(verified_context),
         tool_results=redact_sensitive(evidence),
     )
+
+
+async def compose_automatic_explanation(settings: Settings, request: ModelRequest) -> str | None:
+    """Test hook and runtime boundary for server-controlled model invocation."""
+    if not settings.automatic_model_enabled:
+        return None
+    gateway = MODEL_GATEWAY_FACTORY(settings.openai_api_key or "")
+    gateway.model = getattr(settings, "explanation_model", "gpt-5-mini")
+    return await gateway.compose(request)
 
 
 class ConfirmationRequest(BaseModel):
@@ -892,12 +910,23 @@ def revoke_cloud_assistance_consent(
 
 @router.post("/conversations/{conversation_id}/messages", response_model=MessageResponse)
 async def send_message(
+    request: Request,
     conversation_id: UUID,
     payload: SendMessageRequest,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     conversation = owned_conversation(db, conversation_id, current_user.user_id)
+    settings = get_settings()
+    if settings.enable_conversational_agent:
+        from app.services.conversation_requests import process_conversation
+        inputs, metadata = None, None
+        if payload.freedom_scenario:
+            try:
+                inputs, metadata = resolve_freedom_scenario(payload.freedom_scenario)
+            except StaleAssumptionError:
+                raise HTTPException(503, "Planning assumptions need review") from None
+        return await process_conversation(db, current_user.user_id, conversation, payload, settings, request.is_disconnected, freedom_inputs=inputs, assumption_metadata=metadata)
     if payload.client_request_id is not None:
         prior = db.query(ConversationMessage).filter(
             ConversationMessage.conversation_id == conversation.conversation_id,
@@ -911,6 +940,7 @@ async def send_message(
             return MessageResponse(
                 message_id=prior.message_id, run_id=prior_run.run_id,
                 content=prior.content, blocks=prior.structured_content.get("blocks", []),
+                model_used=prior_run.model_used,
                 created_at=prior.created_at,
             )
     user_message = ConversationMessage(
@@ -933,15 +963,20 @@ async def send_message(
         freedom_assumption_metadata,
     )
     model_used = False
-    if payload.cloud_assistance:
-        settings = get_settings()
-        if not settings.enable_external_model:
-            raise HTTPException(status_code=503, detail="Cloud assistance is not enabled for this release")
-        if active_cloud_consent(db, conversation_id, current_user.user_id) is None:
-            raise HTTPException(status_code=409, detail="Cloud assistance requires active consent for this conversation")
-        model_request = minimized_model_request(db, current_user.user_id, answer.intent.value, answer.blocks)
+    settings = get_settings()
+    product_selection_request = any(
+        block.get("code") == "specific_product_or_guaranteed_outcome" for block in answer.blocks
+    )
+    model_eligible = answer.policy_decision == "allow" or product_selection_request
+    if settings.automatic_model_enabled and model_eligible:
+        model_request = minimized_model_request(
+            db, current_user.user_id, payload.content, answer.intent.value, answer.blocks,
+            include_financial_memory=not product_selection_request,
+        )
         try:
-            explanation = await OpenAIModelGateway(settings.openai_api_key or "").compose(model_request)
+            explanation = await compose_automatic_explanation(settings, model_request)
+            if explanation is None:
+                raise RuntimeError("Automatic model invocation is disabled")
             answer.blocks.append({
                 "type": "cloud_explanation",
                 "provider": "OpenAI",
@@ -951,10 +986,18 @@ async def send_message(
             })
             model_used = True
         except Exception:
-            answer.blocks.append({
-                "type": "warning",
-                "code": "CLOUD_EXPLANATION_UNAVAILABLE",
-            })
+            # Local deterministic output remains usable; do not reveal provider failures to the user.
+            db.add(AuditEvent(
+                user_id=current_user.user_id,
+                event_type="cloud_explanation_failed",
+                target_type="conversation",
+                target_id=str(conversation_id),
+                outcome="fallback",
+                metadata_json={
+                    "failure_category": "cloud_explanation_unavailable",
+                    "policy_bundle_version": MODEL_POLICY_BUNDLE_VERSION,
+                },
+            ))
     assistant_message = ConversationMessage(
         message_id=uuid4(), conversation_id=conversation.conversation_id,
         role="assistant", content=answer.narrative, structured_content={"blocks": answer.blocks},
@@ -966,7 +1009,7 @@ async def send_message(
     db.commit()
     return MessageResponse(
         message_id=assistant_message.message_id, run_id=run.run_id,
-        content=assistant_message.content, blocks=answer.blocks,
+        content=assistant_message.content, blocks=answer.blocks, model_used=model_used,
         created_at=assistant_message.created_at or datetime.now(timezone.utc),
     )
 

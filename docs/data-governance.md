@@ -1,7 +1,7 @@
 # Data Governance and Privacy Operations
 
 **Status:** Required control design; operational implementation pending  
-**Last reviewed:** 2026-08-30  
+**Last reviewed:** 2026-09-11
 **Owner:** Privacy, security and product leads
 
 ## Scope
@@ -69,3 +69,17 @@ Maintain a tested playbook joining technical containment, evidence preservation,
 DPDP assessment and CERT-In reporting. The applicable notification clocks and content
 must be taken from current official rules and directions, with named decision owners and
 24-hour contact paths.
+
+## Conversational runtime additions
+
+The [machine-readable inventory](conversation-data-inventory.json) records conversation
+state, keyed request digests, cached evidence responses and public-source staging.
+State is bounded and validated. Model planning receives sanitized questions and
+minimal topic/period state; current composition receives evidence references/status,
+not transcripts or private amounts. Existing automatic explanation behavior has its
+own minimized evidence boundary.
+
+`clear_owned_conversation_runtime` clears state and request caches for an owned
+conversation inside the caller's rights transaction. It does not erase messages,
+calculations, audit records, backups or provider data. End-user erasure orchestration,
+legal hold handling, approved retention durations and backup expiry remain pending.

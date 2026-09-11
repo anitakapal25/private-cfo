@@ -83,6 +83,9 @@ function Evidence({ block }: { block: AgentBlock }) {
   if (block.type === 'missing_data') {
     return <div className="evidence missing-information"><strong>I need a little more information</strong><p>Please provide or confirm the following so I can answer without guessing:</p><ul>{block.fields?.map(field => <li key={field}>{friendlyFieldLabels[field] || field}</li>)}</ul></div>;
   }
+  if (block.type === 'clarification') return <section className="evidence missing-information" aria-label="Clarification"><strong>A little more context</strong><p>{block.content}</p></section>;
+  if (block.type === 'unsupported_coverage') return <section className="evidence" aria-label="Available coverage"><p>{block.content}</p></section>;
+  if (block.type === 'sourced_explanation') return <section className="evidence" aria-label="Sourced explanation"><p>{block.content}</p>{block.source_url?.startsWith('https://') && <a href={block.source_url} target="_blank" rel="noreferrer">{block.publisher} · {block.locator || 'Official source'}</a>}<p><small>Reviewed {block.reviewed_at} · Review due {block.review_by}{block.published_at ? ` · Published ${block.published_at}` : ''}</small></p>{block.limitations?.map(item => <p key={item}><small>{item}</small></p>)}</section>;
   if (block.type === 'warning') return <div className="evidence warning">This request is outside the agent’s planning boundary.</div>;
   if (block.type === 'cloud_explanation') return <div className="evidence"><strong>Cloud-assisted explanation · {block.provider}</strong><p>{block.content}</p><small>Exact figures remain in the deterministic evidence card.</small></div>;
   const rates = block.assumptions?.rates as Record<string, Record<string, string>> | undefined;
@@ -92,6 +95,7 @@ function Evidence({ block }: { block: AgentBlock }) {
     withdrawal_rate: { label: 'Withdrawal rate', explanation: 'Estimates annual retirement withdrawals; it is not a market price.' },
   };
   return <section className="evidence calculation-response" aria-label="Calculation result">
+    {block.period_start && <p>Period: {block.period_start}</p>}
     <CalculationSummary result={block.result}/>
     <details className="calculation-details"><summary>Calculation details · {block.version}</summary>
       <p>Calculation ID: {block.calculation_id}</p>

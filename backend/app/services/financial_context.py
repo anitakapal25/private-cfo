@@ -96,9 +96,10 @@ class ContextPacket:
 
 
 class FinancialContextService:
-    def __init__(self, db: Session, user_id: UUID):
+    def __init__(self, db: Session, user_id: UUID, period_start: date | None = None):
         self.db = db
         self.user_id = user_id
+        self.period_start = period_start
 
     def assemble(self, scope: str, as_of: datetime | None = None) -> ContextPacket:
         if scope not in SCOPES:
@@ -110,6 +111,12 @@ class FinancialContextService:
             FinancialFact.verification_status == "verified",
             FinancialFact.observed_at <= timestamp,
         ).order_by(FinancialFact.observed_at.desc(), FinancialFact.created_at.desc()).all()
+        if self.period_start is not None:
+            end = date(self.period_start.year, self.period_start.month, monthrange(self.period_start.year, self.period_start.month)[1])
+            rows = [row for row in rows if (
+                row.period_start == self.period_start if row.fact_type in MONTHLY_FACT_TYPES
+                else row.period_start <= end
+            )]
         selected = select_verified_facts(rows, SCOPES[scope], timestamp)
         missing = tuple(key for key in SCOPES[scope] if key not in selected)
         selected_months = [fact.period_start for fact in selected.values() if fact.fact_type in MONTHLY_FACT_TYPES and fact.period_start]
@@ -117,7 +124,7 @@ class FinancialContextService:
         if missing:
             all_months = [row.period_start for row in rows if row.fact_type in MONTHLY_FACT_TYPES and row.period_start]
             target_month = max(all_months) if all_months else target_month
-        return ContextPacket(scope=scope, facts=selected, missing=missing, as_of=timestamp, period_start=target_month)
+        return ContextPacket(scope=scope, facts=selected, missing=missing, as_of=timestamp, period_start=self.period_start or target_month)
 
     def create_candidate(
         self, *, fact_type: str, value: Decimal, unit: str, source_type: str,

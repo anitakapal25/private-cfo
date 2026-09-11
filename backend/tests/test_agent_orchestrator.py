@@ -100,6 +100,6 @@ def test_unknown_tool_fails_closed():
 
 
 def test_external_model_gateway_is_disabled():
-    request = ModelRequest(intent="general_education", redacted_context={}, tool_results=[])
+    request = ModelRequest(sanitized_question="What is a budget?", intent="general_education", redacted_context={}, tool_results=[])
     with pytest.raises(ModelDisabledError):
         asyncio.run(DisabledModelGateway().compose(request))

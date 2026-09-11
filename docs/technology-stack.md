@@ -131,9 +131,14 @@ This document outlines the recommended technology stack for building Financial F
 ## AI/ML Components
 
 ### Language Model Integration:
-- **Primary:** Claude API (Anthropic) for conversational interface
-- **Alternative:** Open-source LLMs (Llama 2, Mistral) for self-hosted options if data privacy requirements demand it
-- **Rationale for Claude:** Strong reasoning capabilities, safety features, and good performance for financial planning tasks
+- **Implemented adapter:** Provider-neutral model gateway with OpenAI Responses support;
+  deployments choose the model through configuration. GPT-6 Astra is the initial
+  conversational evaluation candidate, and ordinary CI uses scripted offline fakes.
+- **Planned:** Additional hosted or local providers after separate privacy, safety,
+  latency and quality evaluation. No local-model download or fine-tuning is part of
+  the current release.
+- **Future evaluation:** Self-hosted open models may be assessed if deployment privacy,
+  operational controls and measured task quality justify the added infrastructure.
 
 ### Document Intelligence:
 - **Layout Analysis:** LayoutLM or Donut for understanding document structure
