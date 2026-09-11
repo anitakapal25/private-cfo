@@ -1,8 +1,34 @@
 # Financial Freedom Copilot - Architecture
 
 **Status:** Agent-first target architecture with partial implementation  
-**Last reviewed:** 2026-08-30  
+**Last reviewed:** 2026-09-11
 **Implementation status:** See [documentation index](README.md). Migrations and code are authoritative when this document differs from the repository.
+
+## Running system and optional conversational path
+
+The default application path is React → authenticated FastAPI → deterministic routing and
+calculators → evidence cards, with an optional configured OpenAI explanation.
+
+With `ENABLE_CONVERSATIONAL_AGENT=true`, the path is:
+
+```text
+Question → privacy/policy checks → bounded planner → validated read-only executor
+        → confirmed financial calculations or reviewed local public education
+        → server-rendered evidence, sources, clarification and bounded topic state
+```
+
+The model proposes tool requests; it cannot execute SQL, supply identity, mutate facts,
+or calculate amounts. Request reservations and conversation row locks serialize state;
+completed retries reuse persisted evidence. The conversational adapter is implemented
+but live-provider and operational release evidence remain pending. The public catalogue
+contains limited education, not live rates, arbitrary search or product disclosures.
+See [current workflow](workflows/llm-agent-development.md) for limits and tests.
+
+## Target architecture (not a deployment inventory)
+
+The following component and infrastructure descriptions are target requirements.
+They do not establish deployed encryption, research providers, HA, backups, or
+operational approvals. Current capability status remains in the documentation index.
 
 ## Overview
 Financial Freedom Copilot (ArthaOS) is a private financial-freedom operating system designed for Indian salaried employees. The system helps users understand their current financial position, set goals, simulate scenarios, and track progress toward financial freedom.
@@ -217,7 +243,7 @@ See [technology-stack.md](./technology-stack.md) for detailed recommendations.
 - Authenticated v1 conversations persist messages, agent runs, deterministic calculation records, tool-call evidence, short-lived payload-bound confirmations and sanitized audit events.
 - The React entry point is a chat-first host with email/password sign-in, structured scenario confirmation, missing-data, refusal, calculation-evidence, cancellation, idempotent retry, partial-failure and expired-session states. Mocked API contract journeys run in a real browser; PostgreSQL-backed browser validation remains pending.
 - Net-worth, recurring cash-flow and user-confirmed financial-freedom scenarios use versioned Decimal-based deterministic orchestration. The projection never invents return, inflation or withdrawal assumptions.
-- Intent routing is deterministic and tools are restricted by an explicit intent-scoped allow-list. A provider-neutral model boundary exists but remains disabled until privacy review and the model-release evaluation gate pass.
+- Intent routing is deterministic and tools are restricted by an explicit intent-scoped allow-list. A configured explanation boundary exists; the separately flagged conversational planner requires its own release evidence.
 - Financial-freedom targets, explicitly confirmed action plans and deterministic proactive review findings are persisted with user ownership and audit evidence.
 - Privacy-first design with deterministic calculation engine
 - Audit coverage outside the v1 agent flow remains planned.

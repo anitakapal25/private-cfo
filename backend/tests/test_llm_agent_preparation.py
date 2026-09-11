@@ -12,24 +12,18 @@ from app.services.agent_orchestrator import AgentOrchestrator
 from app.services.agent_policy import ToolAuthorizationError, authorize_tool
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Planned: financial overview routing and tool composition")
 @pytest.mark.parametrize("question", [
     "How am I doing financially?",
     "Give me an overview of my finances",
     "How healthy are my finances?",
 ])
-def test_overview_questions_do_not_fall_back(question):
-    # The missing DB deliberately makes any accidental data read visible. Replace
-    # this with synthetic integration fixtures when overview execution is added.
-    answer = AgentOrchestrator(None, uuid4()).answer(question)
+def test_overview_questions_execute_conversational_tools(question):
+    from test_conversation_agent import run
+    agent, answer, _, _ = run(question)
     assert answer.intent.value == "financial_overview"
-    assert not any(
-        "financial question or planning goal" in block.get("fields", [])
-        for block in answer.blocks
-    )
+    assert len(agent.executor.calls) == 5
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="Planned: combined-category product request guard")
 @pytest.mark.parametrize("question", [
     "Which mutual fund or stock should I buy?",
     "Which stocks should I buy?",
@@ -50,7 +44,18 @@ def test_untrusted_tool_choices_are_rejected(tool, intent):
 
 def test_mocked_model_cannot_introduce_a_financial_number(monkeypatch):
     def fake_provider(request):
-        return httpx.Response(200, json={"output_text": "Your surplus is ₹999999."})
+        return httpx.Response(
+            200,
+            json={
+                "status": "completed",
+                "output": [{
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [{"type": "output_text", "text": "Your surplus is ₹999999."}],
+                }],
+            },
+        )
 
     transport = httpx.MockTransport(fake_provider)
     real_client = httpx.AsyncClient
@@ -58,6 +63,11 @@ def test_mocked_model_cannot_introduce_a_financial_number(monkeypatch):
         "app.core.model_gateway.httpx.AsyncClient",
         lambda **kwargs: real_client(transport=transport, **kwargs),
     )
-    request = ModelRequest(intent="cash_flow", redacted_context={}, tool_results=[])
+    request = ModelRequest(
+        sanitized_question="Explain my cash flow.",
+        intent="cash_flow",
+        redacted_context={},
+        tool_results=[],
+    )
     with pytest.raises(ModelSafetyError):
         asyncio.run(OpenAIModelGateway("synthetic-test-only").compose(request))

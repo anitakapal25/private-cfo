@@ -368,3 +368,26 @@ test('My Plan does not expose a raw active-plan 404', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('My Plan is temporarily unavailable');
   await expect(page.getByText('Not Found')).toHaveCount(0);
 });
+
+test('conversation shows reviewed sources, partial coverage and clarification', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.route('**/api/v1/agent/conversations/*/messages', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      message_id: 'source-message', run_id: 'source-run', role: 'assistant',
+      content: 'Here is the reviewed explanation and available coverage.', model_used: false,
+      created_at: '2026-09-11T00:00:00Z', blocks: [
+        { type: 'sourced_explanation', content: 'A budget records income and spending.', publisher: 'SEBI', source_url: 'https://investor.sebi.gov.in/moneymatters-inc-exp.html', reviewed_at: '2026-09-11', review_by: '2026-09-30', locator: 'Income and expenses' },
+        { type: 'unsupported_coverage', content: 'Current product rates are not available.' },
+        { type: 'clarification', content: 'Which month and year should I use?', code: 'period' },
+      ],
+    }),
+  }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'Ask Artha', exact: true }).click();
+  await page.getByLabel('Ask about your finances').fill('Explain budgeting and show my cash flow');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Sourced explanation' })).toContainText('Reviewed 2026-09-11');
+  await expect(page.getByRole('link', { name: 'SEBI · Income and expenses' })).toHaveAttribute('href', 'https://investor.sebi.gov.in/moneymatters-inc-exp.html');
+  await expect(page.getByRole('region', { name: 'Clarification' })).toContainText('Which month and year');
+  await expect(page.getByRole('region', { name: 'Available coverage' })).toContainText('rates are not available');
+});

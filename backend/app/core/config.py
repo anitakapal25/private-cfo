@@ -5,7 +5,7 @@ import secrets
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     enable_financial_integrations: bool = False
     enable_background_sync: bool = False
     enable_external_model: bool = False
+    enable_conversational_agent: bool = False
+    conversational_model: str = "gpt-6-astra"
+    conversational_approval_reference: str | None = None
+    conversation_max_rounds: int = Field(default=2, ge=1, le=2)
+    conversation_max_tools: int = Field(default=8, ge=1, le=8)
+    conversation_timeout_seconds: float = Field(default=30, gt=0, le=30)
+    explanation_model: str = "gpt-5-mini"
     enable_advisor_access: bool = False
     enable_community_benchmarks: bool = False
     enable_wellness_programs: bool = False
@@ -91,6 +98,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "External model use requires the approved OpenAI provider, API key, and release approval reference"
             )
+        if self.enable_conversational_agent and self.environment.lower() in {"production", "staging", "pilot"} and not self.conversational_approval_reference:
+            raise ValueError("Conversational agent requires release approval outside development")
         if self.email_delivery_mode not in {"disabled", "smtp"}:
             raise ValueError("EMAIL_DELIVERY_MODE must be disabled or smtp")
         if self.smtp_security not in {"ssl", "starttls"}:
@@ -103,6 +112,16 @@ class Settings(BaseSettings):
         )):
             raise ValueError("SMTP email delivery requires host, credentials, from address, and public app URL")
         return self
+
+    @property
+    def automatic_model_enabled(self) -> bool:
+        """Enable cloud explanations when the approved personal-development provider is configured."""
+        return bool(
+            self.enable_external_model
+            and self.external_model_provider == "openai"
+            and self.openai_api_key
+            and self.external_model_approval_reference
+        )
 
 
 @lru_cache

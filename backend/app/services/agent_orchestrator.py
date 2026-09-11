@@ -1,7 +1,7 @@
 """Deterministic, auditable orchestration for the financial-freedom agent."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
 import hashlib
@@ -34,6 +34,7 @@ AGENT_POLICY_VERSION = "planning-policy-v1"
 
 
 class Intent(str, Enum):
+    FINANCIAL_OVERVIEW = "financial_overview"
     NET_WORTH = "net_worth"
     CASH_FLOW = "cash_flow"
     FREEDOM_PLAN = "freedom_plan"
@@ -147,12 +148,39 @@ EDUCATIONAL_FIELD_EXPLANATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
     ),
 )
 
+INVESTMENT_CONCEPT_EXPLANATIONS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        ("index fund", "index funds"),
+        "An index fund is a mutual fund or exchange-traded fund that aims to follow a stated market index, "
+        "rather than selecting individual companies. Its result can differ from the index because of fees, taxes, "
+        "cash held by the fund, and tracking difference. It can reduce single-company risk through diversification, "
+        "but it can still fall when the market falls. Before choosing one, check the index it follows, the fund's "
+        "costs, tracking difference, holdings, concentration, liquidity where relevant, and whether the time horizon "
+        "fits your goal.",
+    ),
+    (
+        ("diversification",),
+        "Diversification means spreading money across investments so a problem with one company, sector, or asset "
+        "has less effect on the whole portfolio. It can reduce concentration risk, but it cannot remove market risk "
+        "or guarantee a gain.",
+    ),
+)
+
 
 def explain_verified_memory_term(message: str) -> str | None:
     """Return generic field education without reading a user's financial context."""
     normalized = " ".join(message.lower().replace("_", " ").split())
     for aliases, explanation in EDUCATIONAL_FIELD_EXPLANATIONS:
         if any(alias.replace("_", " ") in normalized for alias in aliases):
+            return explanation
+    return None
+
+
+def explain_investment_concept(message: str) -> str | None:
+    """Return general investment education without user data or product selection."""
+    normalized = " ".join(message.lower().split())
+    for aliases, explanation in INVESTMENT_CONCEPT_EXPLANATIONS:
+        if any(alias in normalized for alias in aliases):
             return explanation
     return None
 
@@ -188,9 +216,10 @@ def _format_inr(value: str) -> str:
 class AgentOrchestrator:
     """Routes user intent to deterministic data/calculation tools only."""
 
-    def __init__(self, db: Session, user_id: uuid.UUID):
+    def __init__(self, db: Session, user_id: uuid.UUID, period_start: date | None = None):
         self.db = db
         self.user_id = user_id
+        self.period_start = period_start
 
     def answer(
         self, message: str, freedom_inputs: FreedomProjectionInputs | None = None,
@@ -222,6 +251,14 @@ class AgentOrchestrator:
             return AgentAnswer(
                 intent=Intent.GENERAL_EDUCATION,
                 narrative=explanation,
+                blocks=[],
+            )
+
+        investment_explanation = explain_investment_concept(message)
+        if investment_explanation:
+            return AgentAnswer(
+                intent=Intent.GENERAL_EDUCATION,
+                narrative=investment_explanation,
                 blocks=[],
             )
 
@@ -285,7 +322,7 @@ class AgentOrchestrator:
 
     def _net_worth(self) -> AgentAnswer:
         authorize_tool("calculate_net_worth", Intent.NET_WORTH.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("net_worth")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("net_worth")
         if context.missing:
             return self._missing(Intent.NET_WORTH, list(context.missing), context.period_start)
         result = calculate_net_worth(Decimal(context.facts["total_assets"].value), Decimal(context.facts["total_liabilities"].value))
@@ -295,7 +332,7 @@ class AgentOrchestrator:
         return AgentAnswer(
             intent=Intent.NET_WORTH,
             narrative=(
-                f"Your current net worth is {net_worth}. This is a {position} net-worth "
+                f"Your net worth from these confirmed records is {net_worth}. This is a {position} net-worth "
                 "position, calculated from your confirmed assets minus your confirmed debt."
             ),
             blocks=[self._calculation_block(record, result)],
@@ -305,7 +342,7 @@ class AgentOrchestrator:
 
     def _cash_flow(self) -> AgentAnswer:
         authorize_tool("calculate_monthly_surplus", Intent.CASH_FLOW.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("cash_flow")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("cash_flow")
         if context.missing:
             return self._missing(Intent.CASH_FLOW, list(context.missing), context.period_start)
         result = calculate_cash_flow(Decimal(context.facts["monthly_income"].value), Decimal(context.facts["monthly_expenses"].value))
@@ -397,7 +434,7 @@ class AgentOrchestrator:
 
     def _debt_analysis(self) -> AgentAnswer:
         authorize_tool("calculate_debt_metrics", Intent.DEBT_ANALYSIS.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("debt")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("debt")
         if context.missing:
             return self._missing(Intent.DEBT_ANALYSIS, list(context.missing), context.period_start)
         result = calculate_verified_debt_metrics(*(Decimal(context.facts[key].value) for key in ("monthly_income", "monthly_debt_payments", "debt_outstanding")))
@@ -405,7 +442,7 @@ class AgentOrchestrator:
 
     def _cash_flow_forecast(self) -> AgentAnswer:
         authorize_tool("forecast_cash_flow", Intent.CASH_FLOW_FORECAST.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("cash_flow")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("cash_flow")
         if context.missing:
             return self._missing(Intent.CASH_FLOW_FORECAST, list(context.missing), context.period_start)
         result = forecast_flat_cash_flow(Decimal(context.facts["monthly_income"].value), Decimal(context.facts["monthly_expenses"].value))
@@ -413,7 +450,7 @@ class AgentOrchestrator:
 
     def _goal_progress(self) -> AgentAnswer:
         authorize_tool("get_goal_progress", Intent.GOAL_PROGRESS.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("goal")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("goal")
         if context.missing:
             return self._missing(Intent.GOAL_PROGRESS, list(context.missing), context.period_start)
         result = calculate_goal_progress(Decimal(context.facts["goal_current"].value), Decimal(context.facts["goal_target"].value))
@@ -423,7 +460,7 @@ class AgentOrchestrator:
         if coverage_target is None:
             return self._missing(Intent.INSURANCE_GAP, ["explicit user-selected coverage target"])
         authorize_tool("calculate_coverage_gap", Intent.INSURANCE_GAP.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("insurance")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("insurance")
         if context.missing:
             return self._missing(Intent.INSURANCE_GAP, list(context.missing), context.period_start)
         result = calculate_coverage_gap(Decimal(context.facts["insurance_coverage"].value), coverage_target)
@@ -431,7 +468,7 @@ class AgentOrchestrator:
 
     def _emergency_fund(self) -> AgentAnswer:
         authorize_tool("calculate_emergency_fund_coverage", Intent.EMERGENCY_FUND.value)
-        context = FinancialContextService(self.db, self.user_id).assemble("emergency_fund")
+        context = FinancialContextService(self.db, self.user_id, self.period_start).assemble("emergency_fund")
         if context.missing:
             return self._missing(Intent.EMERGENCY_FUND, list(context.missing), context.period_start)
         result = calculate_emergency_fund_coverage(Decimal(context.facts["liquid_assets"].value), Decimal(context.facts["monthly_expenses"].value))

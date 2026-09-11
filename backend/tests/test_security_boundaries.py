@@ -230,13 +230,29 @@ def test_external_model_requires_provider_key_and_release_reference():
         )
 
 
+def test_external_model_activates_with_approved_personal_development_configuration():
+    settings = Settings(
+        _env_file=None,
+        environment="test",
+        jwt_secret="test-secret",
+        enable_external_model=True,
+        external_model_provider="openai",
+        openai_api_key="test-key",
+        external_model_approval_reference="release-approved",
+    )
+    assert settings.automatic_model_enabled is True
+
+
 def test_openai_gateway_rejects_untraceable_numbers(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
             return None
 
         def json(self):
-            return {"output_text": "Your amount is 100."}
+            return {"status": "completed", "output": [{
+                "type": "message", "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": "Your amount is 100."}],
+            }]}
 
     class FakeClient:
         async def __aenter__(self):
@@ -249,7 +265,7 @@ def test_openai_gateway_rejects_untraceable_numbers(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setattr(model_gateway.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
-    request = ModelRequest(intent="net_worth", redacted_context={}, tool_results=[])
+    request = ModelRequest(sanitized_question="What is my net worth?", intent="net_worth", redacted_context={}, tool_results=[])
 
     with pytest.raises(ModelSafetyError):
         asyncio.run(OpenAIModelGateway("test-key").compose(request))

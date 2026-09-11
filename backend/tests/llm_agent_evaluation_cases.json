@@ -1,6 +1,6 @@
 {
   "version": "llm-agent-preparation-v1",
-  "status": "planned runtime acceptance; catalogue is not an executable evaluation",
+  "status": "Offline runtime assertions in test_conversation_agent.py and test_conversation_postgres.py; live semantic acceptance remains gated",
   "data_policy": "synthetic fixtures only; no credentials, documents or external calls",
   "cases": [
     {

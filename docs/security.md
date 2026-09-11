@@ -1,7 +1,7 @@
 # Financial Freedom Copilot - Security Architecture
 
 **Status:** Target security architecture with partial implementation  
-**Last reviewed:** 2026-08-30
+**Last reviewed:** 2026-09-11
 
 This document describes required controls, not completed controls. Current safeguards
 include authenticated agent routes, Argon2id passwords, TOTP MFA, server-side session
@@ -661,3 +661,15 @@ Key aspects of this architecture include:
 - User-centric design that balances security with usability
 
 This architecture provides a strong foundation for building a trustworthy financial freedom platform that users can confidently rely on to manage their most sensitive financial information while maintaining the highest standards of security and privacy.
+
+## Conversational boundary (implemented, release gated)
+
+The separately flagged planner has strict schemas, a read-only executor, server-owned
+identity, pre-execution authorization, period validation, request reservations and
+bounded calls. The server renders evidence; composition cannot introduce free-form
+financial claims. Source refresh connects to a validated public IP with TLS hostname
+verification, refuses redirects, and stages content outside runtime approval.
+
+These controls do not establish production egress infrastructure, privacy operations,
+or universal semantic routing accuracy. Live-model evaluation and independent release
+review remain gates. See the [model workflow](workflows/model-release.md).

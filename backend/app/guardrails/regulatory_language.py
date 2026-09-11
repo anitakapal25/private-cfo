@@ -30,8 +30,33 @@ PERSONALIZED_ADVICE_PATTERNS = (
 )
 
 
+PRODUCT_SELECTION_PATTERNS = (
+    r"\b(?:what|which)\s+(?:stocks?|shares?|mutual funds?|funds?|etfs?|bonds?)\b.{0,60}\b(?:invest|buy|purchase|choose|pick|recommend|should|best)\b",
+    r"\b(?:recommend|suggest|pick|choose|best|buy|purchase|sell)\b.{0,60}\b(?:stocks?|shares?|mutual funds?|funds?|etfs?|bonds?)\b",
+)
+
+PRODUCT_SELECTION_RESPONSE = (
+    "I can help you evaluate investments. Individual stocks carry company-specific risk; "
+    "diversified equity funds spread exposure across companies but still carry market risk. "
+    "For stocks, compare the business, earnings and cash flow, debt, valuation, governance, "
+    "and trading liquidity. For funds, compare the mandate, holdings, concentration, costs, "
+    "exit terms, and risks. Consider your time horizon, access to cash, and ability to absorb losses. "
+    "I don't have verified current prices or product disclosures in this local response. "
+    "Which stocks or funds are you considering? You can select products for a neutral comparison "
+    "using dated official disclosures; any financial calculations must use verified calculation tools. "
+    "For a final personalized recommendation or buy/sell decision, consult an appropriately "
+    "SEBI-registered investment adviser."
+)
+
+
 def evaluate_financial_request(text: str) -> GuardrailDecision:
     normalized = " ".join(text.lower().split())
+    if any(re.search(pattern, normalized) for pattern in PRODUCT_SELECTION_PATTERNS):
+        return GuardrailDecision(
+            Decision.BLOCK,
+            "specific_product_or_guaranteed_outcome",
+            PRODUCT_SELECTION_RESPONSE,
+        )
     if any(re.search(pattern, normalized) for pattern in PROHIBITED_PATTERNS):
         return GuardrailDecision(
             Decision.BLOCK,
