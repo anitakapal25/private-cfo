@@ -1,5 +1,8 @@
 import base64
 import importlib.util
+import os
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 
@@ -33,3 +36,36 @@ def test_demo_disables_external_services_and_keeps_mfa(monkeypatch):
     assert demo.os.environ["ENABLE_PUBLIC_REGISTRATION"] == "false"
     assert demo.os.environ["ENABLE_MFA"] == "true"
     assert len(base64.urlsafe_b64decode(demo.os.environ["ENCRYPTION_KEY"])) == 32
+
+
+def test_demo_startup_registers_models_in_fresh_process():
+    # A fresh interpreter matters: other tests import financial models and can
+    # hide missing relationship targets in the standalone deployment entrypoint.
+    result = subprocess.run(
+        [sys.executable, "-c", '''
+from unittest.mock import MagicMock, patch
+from sqlalchemy.orm import configure_mappers
+import start_demo
+start_demo.configure_demo()
+
+def session():
+    configure_mappers()
+    return MagicMock()
+
+with patch("app.core.config.SessionLocal", side_effect=session), \\
+     patch("start_demo.subprocess.run") as migrate, \\
+     patch("start_demo.os.execvp") as launch:
+    start_demo.main()
+    migrate.assert_called_once()
+    launch.assert_called_once()
+'''],
+        cwd=Path(__file__).resolve().parents[1],
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "ENVIRONMENT": "demo", "DATABASE_URL": "sqlite://",
+            "JWT_SECRET": "j" * 40, "DEMO_ENCRYPTION_SEED": "e" * 40,
+            "DEMO_PASSWORD": "p" * 40,
+        },
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
