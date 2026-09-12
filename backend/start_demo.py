@@ -32,6 +32,8 @@ def main():
     configure_demo()
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
     from app.core.config import SessionLocal
+    # Alembic runs in a separate process; register relationship targets here too.
+    from app.models import financial  # noqa: F401
     from app.models.user import User, Profile
     from app.auth.manager import get_password_hash
 
