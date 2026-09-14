@@ -149,7 +149,7 @@ async def update_wellness_program(
         )
 
     # Update fields
-    update_data = program_update.dict(exclude_unset=True)
+    update_data = program_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(program, key, value)
 
@@ -261,7 +261,7 @@ async def update_wellness_participation(
         )
 
     # Update fields
-    update_data = participation_update.dict(exclude_unset=True)
+    update_data = participation_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(participation, key, value)
 

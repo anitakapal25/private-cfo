@@ -3,7 +3,7 @@ import Button from '@/components/ui/Button';
 import InfoTooltip from '@/components/ui/InfoTooltip';
 import Toast from '@/components/ui/Toast';
 import { Bell, Check, CircleUserRound, Database, FolderLock, Home, Landmark, LockKeyhole, LogOut, Menu, MessageSquareText, Send, ShieldCheck, Sparkles, Target, WalletCards } from 'lucide-react';
-import { ApiError, beginMfaEnrollment, confirmMfaEnrollment, confirmPasswordReset, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, logout, register, requestPasswordReset, runProactiveReviews, sendMessage, verifyEmail, verifyMfa, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type ProactiveReview } from './api';
+import { ApiError, getAuthCapabilities, resendVerification, beginMfaEnrollment, confirmMfaEnrollment, confirmPasswordReset, createConversation, createFinancialFact, decideFinancialFact, decideProactiveReview, listFinancialFacts, listProactiveReviews, login, logout, register, requestPasswordReset, runProactiveReviews, sendMessage, verifyEmail, verifyMfa, type AgentBlock, type AgentMessage, type FinancialFact, type FreedomScenario, type ProactiveReview } from './api';
 import { discardLocalDocumentSelection, getLocalDocumentCapabilities, isDesktopHost, processLocalDocument, selectLocalDocument, type LocalDocumentCandidate, type LocalDocumentCapabilities, type LocalDocumentSelection, type SessionDocument } from './desktop';
 import Dashboard from './Dashboard';
 import FinancialMemory from './FinancialMemory';
@@ -112,7 +112,7 @@ const AgentPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [authMode, setAuthMode] = useState<'sign-in' | 'register' | 'reset-request' | 'reset-confirm' | 'mfa' | 'mfa-enroll'>(() => window.location.pathname === '/reset-password' && Boolean(new URLSearchParams(window.location.search).get('token')) ? 'reset-confirm' : 'sign-in');
+  const [authMode, setAuthMode] = useState<'sign-in' | 'verification' | 'register' | 'reset-request' | 'reset-confirm' | 'mfa' | 'mfa-enroll'>(() => window.location.pathname === '/reset-password' && Boolean(new URLSearchParams(window.location.search).get('token')) ? 'reset-confirm' : 'sign-in');
   const [authNotice, setAuthNotice] = useState('');
   const [mfaChallengeToken, setMfaChallengeToken] = useState(() => window.location.pathname === '/reset-password' ? new URLSearchParams(window.location.search).get('token') || '' : '');
   const [mfaCode, setMfaCode] = useState('');
@@ -120,6 +120,11 @@ const AgentPage: React.FC = () => {
   const [conversationId, setConversationId] = useState<string>();
   const [messages, setMessages] = useState<AgentMessage[]>([starter]);
   const [draft, setDraft] = useState('');
+  const [authCapabilities, setAuthCapabilities] = useState({ registration_available: false, password_reset_available: false });
+  const verificationStarted = useRef(false);
+  useEffect(() => {
+    void getAuthCapabilities().then(setAuthCapabilities).catch(() => { /* Account actions fail closed; sign-in remains available. */ });
+  }, []);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [pending, setPending] = useState(false);
@@ -160,10 +165,13 @@ const AgentPage: React.FC = () => {
     const url = new URL(window.location.href);
     const linkToken = url.searchParams.get('token');
     if (!linkToken) return;
-    if (url.pathname === '/verify-email') {
+    if (url.pathname === '/verify-email' && !verificationStarted.current) {
+      verificationStarted.current = true;
+      window.history.replaceState({}, '', '/');
+      setAuthNotice('Verifying your email…');
       void verifyEmail(linkToken)
         .then(result => { setAuthNotice(result.detail); setAuthMode('sign-in'); window.history.replaceState({}, '', '/'); })
-        .catch(reason => setError(reason instanceof Error ? reason.message : 'The verification link could not be used.'));
+        .catch(reason => { setAuthNotice(''); setAuthMode('verification'); setError(reason instanceof Error ? reason.message : 'The verification link could not be used.'); });
     }
   }, []);
 
@@ -201,12 +209,13 @@ const AgentPage: React.FC = () => {
 
   const connect = async (event: FormEvent) => {
     event.preventDefault();
+    if (pending) return;
     if (!email.trim() || !password) return;
     setPending(true); setError('');
     try {
       const result = await login(email.trim(), password);
       if (result.state === 'authenticated') await finishAuthentication(result.accessToken);
-      else if (result.state === 'email_verification_required') setAuthNotice('Check your email and verify your account before signing in.');
+      else if (result.state === 'email_verification_required') { setPassword(''); setAuthMode('verification'); setAuthNotice('Check your email and verify your account before signing in.'); }
       else {
         setMfaChallengeToken(result.challengeToken);
         if (result.enrollmentRequired) {
@@ -220,30 +229,38 @@ const AgentPage: React.FC = () => {
   };
 
   const createAccount = async (event: FormEvent) => {
-    event.preventDefault(); setPending(true); setError(''); setAuthNotice('');
+    event.preventDefault(); if (pending) return; setPending(true); setError(''); setAuthNotice('');
     try {
       const result = await register(email.trim(), password, fullName.trim());
-      setAuthNotice(result.detail); setPassword(''); setAuthMode('sign-in');
+      setAuthNotice(result.detail); setPassword(''); setAuthMode('verification');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Registration could not be completed.'); }
     finally { setPending(false); }
   };
 
+  const resendEmail = async (event: FormEvent) => {
+    event.preventDefault(); if (pending) return;
+    setPending(true); setError(''); setAuthNotice('');
+    try { setAuthNotice((await resendVerification(email.trim())).detail); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Verification email could not be requested.'); }
+    finally { setPending(false); }
+  };
+
   const startPasswordReset = async (event: FormEvent) => {
-    event.preventDefault(); setPending(true); setError(''); setAuthNotice('');
+    event.preventDefault(); if (pending) return; setPending(true); setError(''); setAuthNotice('');
     try { setAuthNotice((await requestPasswordReset(email.trim())).detail); setAuthMode('sign-in'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Password-reset request could not be completed.'); }
     finally { setPending(false); }
   };
 
   const completePasswordReset = async (event: FormEvent) => {
-    event.preventDefault(); setPending(true); setError('');
+    event.preventDefault(); if (pending) return; setPending(true); setError('');
     try { setAuthNotice((await confirmPasswordReset(mfaChallengeToken, password)).detail); setPassword(''); setAuthMode('sign-in'); window.history.replaceState({}, '', '/'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Password reset could not be completed.'); }
     finally { setPending(false); }
   };
 
   const completeMfa = async (event: FormEvent) => {
-    event.preventDefault(); setPending(true); setError('');
+    event.preventDefault(); if (pending) return; setPending(true); setError('');
     try {
       const result = authMode === 'mfa-enroll'
         ? await confirmMfaEnrollment(mfaChallengeToken, mfaCode)
@@ -401,7 +418,7 @@ const AgentPage: React.FC = () => {
 
   if (!token) {
     const isMfa = authMode === 'mfa' || authMode === 'mfa-enroll';
-    return <main className="agent-shell auth-shell"><section className="agent-card auth-card"><div className="auth-brand"><ShieldCheck aria-hidden="true"/><span>Artha</span></div><p className="eyebrow">PRIVATE CFO</p><h1>{isMfa ? 'Secure your sign-in' : 'Your financial-freedom agent'}</h1><p>{isMfa ? 'Use a current code from your authenticator app. Codes are never stored in this browser.' : 'Sign in to access only your financial context, conversations, and deterministic calculations.'}</p>{error && <div className="agent-error" role="alert">{error}</div>}{authNotice && <div role="status">{authNotice}</div>}{authMode === 'register' && <form onSubmit={createAccount}><label htmlFor="full-name">Name (optional)</label><input id="full-name" value={fullName} onChange={event => setFullName(event.target.value)} autoComplete="name"/><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required/><label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={12} required/><small>Use 12+ characters with upper-case, lower-case, and a number.</small><Button>{pending ? 'Creating account…' : 'Create account'}</Button><button type="button" className="inline-link" onClick={() => setAuthMode('sign-in')}>Back to sign in</button></form>}{authMode === 'reset-confirm' && <form onSubmit={completePasswordReset}><label htmlFor="password">New password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={12} required/><small>Use 12+ characters with upper-case, lower-case, and a number.</small><Button>{pending ? 'Resetting password…' : 'Reset password'}</Button></form>}{authMode === 'mfa-enroll' && <form onSubmit={completeMfa}>{mfaEnrollment && <MfaSetup enrollment={mfaEnrollment} />}<label htmlFor="mfa-code">Authenticator code</label><input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} required/><Button>{pending ? 'Verifying…' : 'Enable MFA and sign in'}</Button></form>}{authMode === 'mfa' && <form onSubmit={completeMfa}><label htmlFor="mfa-code">Authenticator code</label><input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} required/><Button>{pending ? 'Verifying…' : 'Verify and sign in'}</Button></form>}{authMode === 'reset-request' && <form onSubmit={startPasswordReset}><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required/><Button>{pending ? 'Sending…' : 'Send reset link'}</Button><button type="button" className="inline-link" onClick={() => setAuthMode('sign-in')}>Back to sign in</button></form>}{authMode === 'sign-in' && <><form onSubmit={connect}><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" required/><label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required/><Button>{pending ? 'Signing in…' : 'Sign in securely'}</Button></form><div className="fact-actions"><button type="button" className="inline-link" onClick={() => setAuthMode('register')}>Create an account</button><button type="button" className="inline-link" onClick={() => setAuthMode('reset-request')}>Forgot password?</button></div></>}<p className="auth-privacy"><LockKeyhole size={15}/> Your data stays bound to your signed-in account.</p></section></main>;
+    return <main className="agent-shell auth-shell"><section className="agent-card auth-card"><div className="auth-brand"><ShieldCheck aria-hidden="true"/><span>Artha</span></div><p className="eyebrow">PRIVATE CFO</p><h1>{isMfa ? 'Secure your sign-in' : 'Your financial-freedom agent'}</h1><p>{isMfa ? 'Use a current code from your authenticator app. Codes are never stored in this browser.' : 'Sign in to access only your financial context, conversations, and deterministic calculations.'}</p>{error && <div className="agent-error" role="alert">{error}</div>}{authNotice && <div role="status">{authNotice}</div>}{authMode === 'verification' && <><p>Open the verification email in your browser, then sign in here to set up your authenticator.</p>{authCapabilities.registration_available && <form onSubmit={resendEmail}><label htmlFor="verification-email">Email</label><input id="verification-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} required/><Button disabled={pending}>{pending ? 'Sending…' : 'Resend verification email'}</Button></form>}<button disabled={pending} type="button" className="inline-link" onClick={() => setAuthMode('sign-in')}>Back to sign in</button></>}{authMode === 'register' && <form onSubmit={createAccount}><label htmlFor="full-name">Name (optional)</label><input id="full-name" value={fullName} onChange={event => setFullName(event.target.value)} autoComplete="name"/><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required/><label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={12} required/><small>Use 12+ characters with upper-case, lower-case, and a number.</small><Button disabled={pending}>{pending ? 'Creating account…' : 'Create account'}</Button><button type="button" className="inline-link" onClick={() => setAuthMode('sign-in')}>Back to sign in</button></form>}{authMode === 'reset-confirm' && <form onSubmit={completePasswordReset}><label htmlFor="password">New password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={12} required/><small>Use 12+ characters with upper-case, lower-case, and a number.</small><Button disabled={pending}>{pending ? 'Resetting password…' : 'Reset password'}</Button></form>}{authMode === 'mfa-enroll' && <form onSubmit={completeMfa}>{mfaEnrollment && <MfaSetup enrollment={mfaEnrollment} />}<label htmlFor="mfa-code">Authenticator code</label><input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} required/><Button disabled={pending}>{pending ? 'Verifying…' : 'Enable MFA and sign in'}</Button></form>}{authMode === 'mfa' && <form onSubmit={completeMfa}><label htmlFor="mfa-code">Authenticator code</label><input id="mfa-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={mfaCode} onChange={event => setMfaCode(event.target.value.replace(/\D/g, ''))} required/><Button disabled={pending}>{pending ? 'Verifying…' : 'Verify and sign in'}</Button></form>}{authMode === 'reset-request' && <form onSubmit={startPasswordReset}><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required/><Button disabled={pending}>{pending ? 'Sending…' : 'Send reset link'}</Button><button type="button" className="inline-link" onClick={() => setAuthMode('sign-in')}>Back to sign in</button></form>}{authMode === 'sign-in' && <><form onSubmit={connect}><label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" required/><label htmlFor="password">Password</label><input id="password" type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required/><Button disabled={pending}>{pending ? 'Signing in…' : 'Sign in securely'}</Button></form><div className="fact-actions">{authCapabilities.registration_available && <button disabled={pending} type="button" className="inline-link" onClick={() => setAuthMode('register')}>Create an account</button>}{authCapabilities.password_reset_available && <button disabled={pending} type="button" className="inline-link" onClick={() => setAuthMode('reset-request')}>Forgot password?</button>}</div></>}<p className="auth-privacy"><LockKeyhole size={15}/> Your data stays bound to your signed-in account.</p></section></main>;
   }
 
   const verifiedFacts = facts.filter(fact => fact.verification_status === 'verified');

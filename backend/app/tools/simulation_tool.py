@@ -1,8 +1,9 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.user import User
 from app.models.financial import Asset, Liability, IncomeSource, Expense, FinancialFreedomTarget
 from app.core.config import get_db
-from typing import Dict, Any, List
+from typing import Dict, Any
 import uuid
 import random
 import math
@@ -297,7 +298,7 @@ class SimulationTool(BaseTool):
                     "methodology": "Monte Carlo simulation with geometric Brownian motion for market returns and normal distributions for income/expense variations"
                 },
                 "calculation_id": f"calc-sim-{user_id_str}-{int(datetime.now().timestamp())}",
-                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "timestamp": legacy_utc_isoformat() + "Z",
                 "response": ". ".join(response_parts)
             }
 

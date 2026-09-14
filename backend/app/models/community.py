@@ -1,10 +1,9 @@
-from sqlalchemy import Column, DateTime, Boolean, Integer, String, Numeric
+from app.core.time import utc_now
+from sqlalchemy import Column, DateTime, Integer, String, Numeric
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import datetime
 
 
 class CommunityBenchmark(Base, BaseModel):
@@ -25,7 +24,7 @@ class CommunityBenchmark(Base, BaseModel):
     # Sample size used to calculate this benchmark (for transparency)
     sample_size = Column(Integer, nullable=False)
     # When this benchmark was last calculated/updated
-    calculated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    calculated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     # Optional: region or other filtering criteria
     region = Column(String(50), nullable=True)  # e.g., 'India', 'Maharashtra', etc.
     # Optional: additional metadata in JSON format

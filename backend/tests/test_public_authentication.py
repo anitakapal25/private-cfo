@@ -1,6 +1,7 @@
 """Unit coverage for public-account security primitives and route surface."""
 
 from types import SimpleNamespace
+import secrets
 from email.message import EmailMessage
 
 import pytest
@@ -130,3 +131,37 @@ def test_public_auth_routes_include_verification_mfa_refresh_and_revocation():
         "/api/auth/refresh", "/api/auth/logout",
     }
     assert expected <= paths
+
+
+def registration_settings(**overrides):
+    from cryptography.fernet import Fernet
+    values = dict(_env_file=None, environment="test", jwt_secret=secrets.token_hex(32),
+                  enable_public_registration=True, enable_mfa=True,
+                  encryption_key=Fernet.generate_key().decode(), email_delivery_mode="smtp",
+                  smtp_host="smtp.example.com", smtp_username="synthetic", smtp_password="synthetic",
+                  email_from_address="agent@example.com", public_app_url="https://agent.example.com")
+    values.update(overrides)
+    return Settings(**values)
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"enable_mfa": False}, "requires MFA"),
+    ({"encryption_key": None}, "valid encryption key"),
+    ({"encryption_key": "invalid"}, "valid encryption key"),
+    ({"public_app_url": "http://example.com"}, "HTTPS origin"),
+    ({"public_app_url": "https://user:password@example.com"}, "HTTPS origin"),
+    ({"public_app_url": "https://example.com/?token=secret"}, "HTTPS origin"),
+])
+def test_registration_configuration_fails_closed(overrides, message):
+    with pytest.raises(ValueError, match=message):
+        registration_settings(**overrides)
+
+
+def test_capabilities_only_expose_availability():
+    from app.auth.router import auth_capabilities
+    assert auth_capabilities(registration_settings()) == {
+        "registration_available": True, "password_reset_available": True,
+    }
+    assert auth_capabilities(Settings(_env_file=None, environment="test", email_delivery_mode="disabled", enable_public_registration=False)) == {
+        "registration_available": False, "password_reset_available": False,
+    }

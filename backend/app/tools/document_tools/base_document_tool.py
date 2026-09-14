@@ -1,10 +1,10 @@
+from app.core.time import utc_now
 from app.tools.base import BaseTool
 from app.models.document import DocumentStorage, ExtractedField
 from app.core.config import get_db
 from typing import Dict, Any, Optional
 import uuid
 import json
-from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -83,7 +83,7 @@ class BaseDocumentTool(BaseTool):
                 file_size_bytes=file_info["file_size_bytes"],
                 mime_type=file_info["mime_type"],
                 checksum_sha256=file_info["checksum_sha256"],
-                upload_timestamp=datetime.utcnow(),
+                upload_timestamp=utc_now(),
                 extraction_status="pending",
                 extraction_confidence=0,
                 verification_status="unverified",

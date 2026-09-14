@@ -1,9 +1,7 @@
 from sqlalchemy import Column, DateTime, Boolean, Integer, String, BigInteger, Date, Numeric, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.ext.declarative import declarative_base
 from .base import Base, BaseModel
 import uuid
-from datetime import date
 
 # Document management models
 class DocumentStorage(Base, BaseModel):

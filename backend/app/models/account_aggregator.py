@@ -3,7 +3,6 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import datetime
 from app.core.crypto import decrypt_secret, encrypt_secret
 
 

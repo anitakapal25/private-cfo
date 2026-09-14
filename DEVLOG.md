@@ -12,6 +12,36 @@ Track implementation progress for the Financial Freedom Copilot (ArthaOS) agent 
 
 ## Current Status: Basic Agent Backend and Frontend Working
 
+### 2026-09-14: Targeted deprecation cleanup
+
+- Replaced application `datetime.utcnow()` calls with shared timezone-aware UTC
+  helpers while retaining the existing legacy timestamp strings at API boundaries.
+- Replaced Pydantic update serialization with `model_dump(exclude_unset=True)` and
+  removed unused legacy SQLAlchemy declarative imports without changing models,
+  migrations, routes or disabled feature code.
+- Extended the dependency-health gate and added regression coverage for timezone
+  defaults, wire formats, omitted versus explicit-null fields, and detection rules.
+- No files or dependencies were removed: reference checks did not establish a safe
+  deletion candidate, and the retained packages still support implemented features.
+- Verified the backend in an ignored Python 3.12 environment matching Docker and CI.
+  The retained Passlib compatibility path still emits Python's upstream `crypt`
+  deprecation warning; replacing it requires a separate account-compatibility change.
+
+### 2026-09-13: Public agent account flow
+
+- Implemented registration capability discovery, verification resend with rate limits
+  and rollback on delivery failure, mandatory MFA/encryption validation, HTTPS email
+  origins, and production verification/reset entry pages.
+- Connected account actions to server capabilities; added check-email/resend states,
+  duplicate-submit prevention and desktop return instructions. Desktop API origin
+  configuration and restricted Tauri CORS support shared accounts.
+- Validation: authentication unit coverage, four PostgreSQL integration tests including
+  a real Chrome journey with an emulated desktop host, and four browser contract tests
+  passed. Frontend type-check/lint/build and documentation/repository checks passed.
+- Real SMTP delivery, native packaged desktop testing, monitoring and public deployment
+  approval remain pending. Synthetic mail was intercepted in tests. The existing
+  expired income-tax assumption remains fail-closed and was not changed.
+
 ### 2026-09-05: LLM agent workflow preparation
 
 - Prepared an isolated `feat/llm-agent` worktree with existing tracked changes recorded

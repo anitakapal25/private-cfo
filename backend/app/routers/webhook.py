@@ -1,3 +1,4 @@
+from app.core.time import utc_now, legacy_utc_isoformat
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -136,13 +137,13 @@ def send_webhook_notification(subscription_id: str, event_type: str, payload: di
 
             # Update delivery with result
             delivery.status_code = response.status_code
-            delivery.completed_at = datetime.utcnow()
+            delivery.completed_at = utc_now()
 
             if not response.ok:
                 delivery.error_message = f"HTTP {response.status_code}: {response.text[:200]}"
         except Exception as e:
             delivery.error_message = redact_text(str(e))[:200]
-            delivery.completed_at = datetime.utcnow()
+            delivery.completed_at = utc_now()
 
         db.commit()
     except Exception as e:
@@ -318,7 +319,7 @@ def trigger_webhooks(user_id: str, event_type: str, payload: dict, background_ta
                     # Prepare payload with metadata
                     webhook_payload = {
                         "event_type": event_type,
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": legacy_utc_isoformat(),
                         "user_id": str(user_id),
                         "data": payload
                     }

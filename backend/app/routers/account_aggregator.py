@@ -1,3 +1,4 @@
+from app.core.time import utc_now
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -125,7 +126,7 @@ async def update_account_aggregator_connection(
         update_data['encrypted_credentials'] = AccountAggregatorConnection.encrypt_credentials(credentials)
     for key, value in update_data.items():
         setattr(connection, key, value)
-    connection.updated_at = datetime.utcnow()
+    connection.updated_at = utc_now()
     db.commit()
     db.refresh(connection)
     return connection
@@ -174,7 +175,7 @@ async def sync_account_aggregator_connection(
             detail="Connection not found"
         )
     # Simulate sync process
-    connection.last_synced_at = datetime.utcnow()
+    connection.last_synced_at = utc_now()
     connection.sync_status = "success"
     connection.last_error_message = None
     # In a real implementation, we would update the user's financial data with the synced holdings

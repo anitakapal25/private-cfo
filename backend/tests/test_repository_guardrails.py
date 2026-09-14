@@ -25,3 +25,12 @@ def test_only_ignored_untracked_environment_is_exempt(tmp_path):
 def test_missing_git_metadata_fails_closed(tmp_path):
     (tmp_path / ".env").write_text("# synthetic fixture\n")
     assert not guardrails.is_ignored_local_file(tmp_path, ".env")
+
+
+def test_local_virtual_environment_is_not_scanned(tmp_path, monkeypatch):
+    package = tmp_path / ".venv" / "lib" / "example.py"
+    package.parent.mkdir(parents=True)
+    package.write_text("synthetic third-party package\n")
+    monkeypatch.setattr(guardrails, "ROOT", tmp_path)
+
+    assert list(guardrails.iter_text_files()) == []

@@ -1,10 +1,9 @@
+from app.core.time import utc_now
 from sqlalchemy import Column, DateTime, Boolean, String, Text, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import datetime
 
 
 class TaxExportTemplate(Base, BaseModel):
@@ -21,8 +20,8 @@ class TaxExportTemplate(Base, BaseModel):
     # Whether this template is active
     is_active = Column(Boolean, nullable=False, default=True)
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     # Relationships
     exports = relationship("TaxExport", back_populates="template")
@@ -44,7 +43,7 @@ class TaxExport(Base, BaseModel):
     is_downloaded = Column(Boolean, nullable=False, default=False)
     download_count = Column(Integer, nullable=False, default=0)
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     expires_at = Column(DateTime(timezone=True), nullable=True)  # Export links can expire
 
     # Relationships
@@ -70,7 +69,7 @@ class LoanApplicationExport(Base, BaseModel):
     is_downloaded = Column(Boolean, nullable=False, default=False)
     download_count = Column(Integer, nullable=False, default=0)
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     expires_at = Column(DateTime(timezone=True), nullable=True)  # Export links can expire
 
     # Relationships

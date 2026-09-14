@@ -1,6 +1,6 @@
+from app.core.time import utc_now
 from app.tools.document_tools.base_document_tool import BaseDocumentTool
 from typing import Dict, Any
-from datetime import datetime
 from app.core.config import get_db
 from app.models.document import DocumentStorage, ExtractedField
 from app.guardrails.data_redaction import redact_text
@@ -138,7 +138,7 @@ class VerifyExtractedDataTool(BaseDocumentTool):
                     document.verification_status = "verified"
                 else:
                     document.verification_status = "partially_verified" if corrections_applied else "needs_review"
-                document.updated_at = datetime.utcnow()
+                document.updated_at = utc_now()
                 db.commit()
 
                 # Update individual extracted field records
@@ -186,7 +186,7 @@ class VerifyExtractedDataTool(BaseDocumentTool):
                         field_record.parsed_text = str(correction["new"])
                     except:
                         pass
-                field_record.verification_timestamp = datetime.utcnow() if verified else None
+                field_record.verification_timestamp = utc_now() if verified else None
 
         # If marking as fully verified, update all fields
         if verified and not field_corrections:

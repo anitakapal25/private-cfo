@@ -1,3 +1,4 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.financial import IncomeSource
 from app.core.config import get_db
@@ -184,7 +185,7 @@ class TaxOptimizationTool(BaseTool):
                     "note": "This is a simplified tax calculation. Actual tax liability may vary based on additional deductions, exemptions, and specific circumstances."
                 },
                 "calculation_id": f"calc-taxopt-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()

@@ -1,5 +1,5 @@
+from app.core.time import utc_now
 import threading
-from datetime import datetime
 from sqlalchemy.orm import Session
 from app.core.config import SessionLocal
 from app.models.investment_platform import InvestmentPlatformConnection
@@ -35,14 +35,14 @@ def sync_all_investment_connections():
                 # 4. Handle errors appropriately
 
                 # For MVP, we just update the sync timestamp and status
-                connection.last_synced_at = datetime.utcnow()
+                connection.last_synced_at = utc_now()
                 connection.sync_status = "success"
                 connection.last_error_message = None
 
                 logger.info(f"Synced connection {connection.connection_id} for platform {connection.platform_name}")
             except Exception as e:
                 logger.error(f"Error syncing connection {connection.connection_id}: {str(e)}")
-                connection.last_synced_at = datetime.utcnow()
+                connection.last_synced_at = utc_now()
                 connection.sync_status = "failed"
                 connection.last_error_message = str(e)
 

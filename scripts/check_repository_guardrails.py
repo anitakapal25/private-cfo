@@ -6,7 +6,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXCLUDED_PARTS = {".git", "node_modules", "dist", "uploads", "__pycache__"}
+EXCLUDED_PARTS = {
+    ".git",
+    ".venv",
+    "node_modules",
+    "dist",
+    "uploads",
+    "__pycache__",
+}
 TEXT_SUFFIXES = {".py", ".ts", ".tsx", ".js", ".json", ".md", ".yml", ".yaml", ".toml"}
 
 PATTERNS = {

@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/auth/capabilities', route => route.fulfill({ json: {
+    registration_available: true, password_reset_available: true,
+  } }));
+});
+
 const conversationId = '11111111-1111-4111-8111-111111111111';
 
 function financialFact(factType: string, value: string, verificationStatus = 'verified', sourceType = 'user_statement') {
