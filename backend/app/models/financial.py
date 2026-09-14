@@ -1,10 +1,8 @@
-from sqlalchemy import Column, DateTime, Boolean, Integer, String, CHAR, Numeric, Date, text, ForeignKey
+from sqlalchemy import Column, Boolean, Integer, String, CHAR, Numeric, Date, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import date
 
 # Financial data models
 class IncomeSource(Base, BaseModel):

@@ -1,10 +1,9 @@
+from app.core.time import utc_now
 from sqlalchemy import Column, DateTime, Boolean, Integer, String, Text, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import datetime
 
 
 class EmployerWellnessProgram(Base, BaseModel):
@@ -27,8 +26,8 @@ class EmployerWellnessProgram(Base, BaseModel):
     max_participants = Column(Integer, nullable=True)
     current_participants = Column(Integer, nullable=False, default=0)
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     # Relationships
     participants = relationship("UserWellnessParticipation", back_populates="program")
@@ -43,7 +42,7 @@ class UserWellnessParticipation(Base, BaseModel):
     user_id = Column(UUID(as_uuid=True), ForeignKey("financial.users.user_id"), nullable=False)
     program_id = Column(UUID(as_uuid=True), ForeignKey("financial.employer_wellness_programs.program_id"), nullable=False)
     # Participation details
-    enrollment_date = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    enrollment_date = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     completion_date = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     # Progress tracking
@@ -54,8 +53,8 @@ class UserWellnessParticipation(Base, BaseModel):
     points_earned = Column(Integer, nullable=False, default=0)
     rewards_redeemed = Column(Integer, nullable=False, default=0)
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     # Relationships
     user = relationship("User", back_populates="wellness_participations")

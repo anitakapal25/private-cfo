@@ -134,7 +134,7 @@ async def update_community_benchmark(
         )
 
     # Update fields
-    update_data = benchmark_update.dict(exclude_unset=True)
+    update_data = benchmark_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(benchmark, key, value)
 

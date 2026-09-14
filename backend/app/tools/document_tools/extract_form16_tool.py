@@ -1,3 +1,4 @@
+from app.core.time import utc_now
 from app.tools.document_tools.base_document_tool import BaseDocumentTool
 from typing import Dict, Any
 import re
@@ -118,7 +119,7 @@ class ExtractForm16Tool(BaseDocumentTool):
                 document.extraction_status = "completed"
                 document.extraction_confidence = 85  # Simulated confidence score
                 document.verification_status = "needs_review"
-                document.updated_at = datetime.utcnow()
+                document.updated_at = utc_now()
                 db.commit()
 
                 # Also create individual extracted field records for audit trail

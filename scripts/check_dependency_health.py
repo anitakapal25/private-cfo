@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import ast
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -11,7 +11,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_LOCK = ROOT / "frontend" / "package-lock.json"
 BACKEND_REQUIREMENTS = ROOT / "backend" / "requirements.txt"
-DEPRECATED_PYDANTIC_CONFIG = re.compile(r"^\s+class Config:\s*$", re.MULTILINE)
 
 
 def check_frontend_lock() -> list[str]:
@@ -49,13 +48,28 @@ def check_backend_requirements() -> list[str]:
     return findings
 
 
+def deprecated_api_findings(source: str) -> list[tuple[int, str]]:
+    """Inspect syntax, ignoring comments and ordinary dictionary operations."""
+    tree = ast.parse(source)
+    findings = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "Config":
+            findings.append((node.lineno, "Pydantic class Config is deprecated; use model_config = ConfigDict(...)"))
+        elif isinstance(node, ast.Attribute) and node.attr == "utcnow":
+            findings.append((node.lineno, "utcnow is deprecated; use timezone-aware UTC timestamps"))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "dict" and any(k.arg == "exclude_unset" for k in node.keywords):
+            findings.append((node.lineno, "Pydantic dict(exclude_unset=...) is deprecated; use model_dump"))
+        elif isinstance(node, ast.ImportFrom) and node.module == "sqlalchemy.ext.declarative" and any(n.name == "declarative_base" for n in node.names):
+            findings.append((node.lineno, "Use sqlalchemy.orm.declarative_base instead of sqlalchemy.ext.declarative"))
+    return findings
+
+
 def check_deprecated_python_apis() -> list[str]:
     findings: list[str] = []
-    for path in (ROOT / "backend").rglob("*.py"):
-        if DEPRECATED_PYDANTIC_CONFIG.search(path.read_text(encoding="utf-8")):
-            findings.append(
-                f"{path.relative_to(ROOT)}: Pydantic class Config is deprecated; use model_config = ConfigDict(...)"
-            )
+    # Historical migrations and test fixtures are not application modernization targets.
+    for path in sorted((ROOT / "backend" / "app").rglob("*.py")):
+        for line, message in deprecated_api_findings(path.read_text(encoding="utf-8")):
+            findings.append(f"{path.relative_to(ROOT)}:{line}: {message}")
     return findings
 
 

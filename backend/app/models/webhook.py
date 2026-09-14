@@ -1,10 +1,9 @@
+from app.core.time import utc_now
 from sqlalchemy import Column, DateTime, Boolean, String, Text, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 import uuid
-from datetime import datetime
 import json
 
 
@@ -27,8 +26,8 @@ class WebhookSubscription(Base, BaseModel):
     # Headers to include in the webhook request (as JSON)
     headers = Column(Text, nullable=True)  # JSON string of headers
     # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
 
     # Relationship
     user = relationship("User", back_populates="webhook_subscriptions")
@@ -51,7 +50,7 @@ class WebhookDelivery(Base, BaseModel):
     # Any error message if the delivery failed
     error_message = Column(Text, nullable=True)
     # When the delivery was attempted
-    attempted_at = Column(DateTime(timezone=True), nullable=False, default=datetime.utcnow)
+    attempted_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     # When the delivery was completed (if successful)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 

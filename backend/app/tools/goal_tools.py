@@ -1,3 +1,4 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.user import User
 from app.models.financial import Goal, FinancialFreedomTarget
@@ -282,7 +283,7 @@ class GoalPlanningTool(BaseTool):
                     }
                 },
                 "calculation_id": f"calc-goal-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()

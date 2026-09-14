@@ -142,7 +142,8 @@ export interface ProactiveReview {
   created_at: string;
 }
 
-const API_ROOT = '/api/v1/agent';
+const API_ORIGIN = (import.meta.env.VITE_API_ORIGIN || '').replace(/\/$/, '');
+const API_ROOT = `${API_ORIGIN}/api/v1/agent`;
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -162,7 +163,7 @@ interface TokenPair {
 }
 
 async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/auth${path}`, init);
+  const response = await fetch(`${API_ORIGIN}/api/auth${path}`, init);
   const payload = await response.json().catch(() => ({})) as T & { detail?: unknown };
   if (!response.ok) throw new Error(typeof payload.detail === 'string' ? payload.detail : 'The security request could not be completed.');
   return payload;
@@ -179,6 +180,19 @@ export async function login(email: string, password: string): Promise<AuthStart>
   if (payload.email_verification_required) return { state: 'email_verification_required' };
   if (payload.mfa_challenge_token) return { state: 'mfa_required', challengeToken: payload.mfa_challenge_token, enrollmentRequired: Boolean(payload.mfa_enrollment_required) };
   throw new Error('The sign-in response was incomplete.');
+}
+
+export interface AuthCapabilities {
+  registration_available: boolean;
+  password_reset_available: boolean;
+}
+
+export function getAuthCapabilities(): Promise<AuthCapabilities> {
+  return authRequest('/capabilities');
+}
+
+export function resendVerification(email: string): Promise<{ detail: string }> {
+  return authRequest('/verification/resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
 }
 
 export function register(email: string, password: string, fullName: string): Promise<{ detail: string }> {

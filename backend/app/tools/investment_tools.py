@@ -1,3 +1,4 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.user import User
 from app.models.financial import Asset, Liability, Goal, FinancialFreedomTarget
@@ -344,7 +345,7 @@ class InvestmentPortfolioAnalysisTool(BaseTool):
                     "note": "This is a simplified portfolio analysis. Actual investment advice should consider individual circumstances, tax implications, and market conditions."
                 },
                 "calculation_id": f"calc-investment-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()

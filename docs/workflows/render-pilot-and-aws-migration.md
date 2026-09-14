@@ -82,3 +82,100 @@ control. Do not put credentials, keys, approval references or user data in this 
   evaluations, provider approval and operational monitoring are still required.
 - Account Aggregator, personal bank imports, advisor sharing, exports and webhooks
   remain disabled for the pilot.
+
+## Public agent registration configuration
+
+Registration is shared by browser and desktop clients through the same API and
+PostgreSQL database. The capability endpoint (`GET /api/auth/capabilities`) exposes
+only account-action availability. Registration requires verified email followed by
+password sign-in and authenticator enrollment; existing users provide their MFA code.
+Lost or expired verification links can be replaced through the rate-limited
+`POST /api/auth/verification/resend` endpoint. Failed delivery preserves the old link.
+
+Configure the regular server environment, never source-controlled credentials:
+
+```dotenv
+ENABLE_PUBLIC_REGISTRATION=true
+ENABLE_MFA=true
+EMAIL_DELIVERY_MODE=smtp
+SMTP_HOST=<existing-provider-host>
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=<provider-username>
+SMTP_PASSWORD=<provider-password>
+EMAIL_FROM_ADDRESS=<verified-sender-address>
+PUBLIC_APP_URL=https://<public-agent-origin>
+ENCRYPTION_KEY=<valid-Fernet-key>
+JWT_SECRET=<stable-random-secret-at-least-32-characters>
+```
+
+Use the provider's existing SSL/port settings if different. `PUBLIC_APP_URL` must
+be an HTTPS origin with no credentials, query, fragment or subpath. Loopback HTTP
+is accepted only in development/test. The origin must serve `/verify-email` and
+`/reset-password` through the frontend, connected to this same API. Never rotate
+an existing encryption key without migrating encrypted MFA secrets.
+
+Browser builds use same-origin API requests. For packaged desktop builds, set
+`VITE_API_ORIGIN=https://<public-agent-origin>` when building, and merge that exact
+origin into the Tauri `app.security.csp` connect-src directive using a deployment
+config passed to `npm run tauri -- build --config <deployment-config.json>`.
+Preserve the other CSP directives; do not allow wildcard destinations. The backend
+allows only the built-in Tauri origins for cross-origin GET/POST requests, with
+Authorization and Content-Type headers. Email verification opens in the browser;
+users then return to the desktop agent and sign in. No deep link is needed.
+
+Before public activation, record successful SMTP delivery using an approved test
+account, monitoring/incident ownership, and PostgreSQL authentication journey
+results. Run migrations before restarting the regular server. Verify capability
+availability, registration, resend, verification, MFA enrollment, subsequent login,
+password reset and logout. Test fixtures intercept SMTP and are not proof of live
+provider delivery. Keep existing privacy and real-data release gates open until
+reviewed; the free demo continues to force registration off.
+
+For local regression testing, build the frontend, install the Playwright browser (or use installed Chrome), migrate a disposable PostgreSQL database and run:
+
+```bash
+ARTHA_TEST_DATABASE_URL=<disposable-postgresql-url> ARTHA_BROWSER_AUTH_TEST=1 python -m pytest backend/tests/test_registration_postgres.py -q
+(cd frontend && npm run test:e2e -- mfa-setup.spec.ts)
+```
+
+Rollback public enrollment by setting `ENABLE_PUBLIC_REGISTRATION=false` and
+restarting the server. Preserve SMTP, MFA and encryption keys so existing users
+can still sign in and reset passwords.
+
+## Brevo Free for small-scale local testing
+
+The existing SMTP adapter supports Brevo without a new dependency. Select the Free
+plan in Brevo, enable transactional sending if account activation is requested,
+and add/verify your sender under Senders. Brevo may rewrite free-address senders
+onto a Brevo domain; inspect the sender status before testing.
+
+Copy the SMTP login and create an SMTP key under **Settings > SMTP & API**.
+The SMTP login is different from your account email; the SMTP key is different
+from an API key. Store both directly in the ignored root `.env`, never in chat.
+
+```dotenv
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=<Brevo-SMTP-login>
+SMTP_PASSWORD=<Brevo-SMTP-key>
+EMAIL_FROM_ADDRESS=<sender-verified-in-Brevo>
+PUBLIC_APP_URL=http://localhost:3000
+ENABLE_MFA=true
+EMAIL_DELIVERY_MODE=smtp
+ENABLE_PUBLIC_REGISTRATION=true
+```
+
+Until credentials are configured, keep `EMAIL_DELIVERY_MODE=disabled` and
+`ENABLE_PUBLIC_REGISTRATION=false`. Restart the backend after changing settings;
+it caches configuration. An existing unverified account should use **Resend
+verification email**, rather than registering again. Inspect Brevo transactional
+logs and the recipient inbox/spam folder to confirm delivery. Free-plan limits are
+provider-enforced; this application does not provision or upgrade a Brevo plan.
+
+This setup does not establish live-delivery evidence or waive the existing
+real-data release gates. Local links work on the development computer; remote
+users require the public HTTPS origin.
+
+Provider setup: https://help.brevo.com/hc/en-us/articles/7924908994450-Send-transactional-emails-using-Brevo-SMTP

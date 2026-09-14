@@ -1,3 +1,4 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.financial import IncomeSource, Expense, Asset, Liability, FinancialFreedomTarget
 from app.core.config import get_db
@@ -106,7 +107,7 @@ class CalculateNetWorthTool(BaseTool):
                     "date": "2026-08-26"  # In reality, this would be the calculation date
                 },
                 "calculation_id": f"calc-networth-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()
@@ -242,7 +243,7 @@ class CalculateSavingsRateTool(BaseTool):
                     "date": "2026-08-26"
                 },
                 "calculation_id": f"calc-savingsrate-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()
@@ -339,7 +340,7 @@ class CalculateFreedomNumberTool(BaseTool):
                     "note": "Financial freedom number represents the corpus needed to generate passive income covering target lifestyle expenses"
                 },
                 "calculation_id": f"calc-freedomnumber-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()
@@ -480,7 +481,7 @@ class CalculateFreedomGapTool(BaseTool):
                     "date": "2026-08-26"
                 },
                 "calculation_id": f"calc-freedomgap-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()
@@ -653,7 +654,7 @@ class CalculateProjectedCorpusTool(BaseTool):
                     "note": "This projection includes future value of current assets, future savings contributions, and simplified liability treatment."
                 },
                 "calculation_id": f"calc-projcorpus-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()

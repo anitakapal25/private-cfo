@@ -1,3 +1,4 @@
+from app.core.time import legacy_utc_isoformat
 from app.tools.base import BaseTool
 from app.models.user import User, Profile
 from app.models.financial import IncomeSource, Expense, Asset, Liability
@@ -238,7 +239,7 @@ class InsurancePlanningTool(BaseTool):
                     "note": "This is a simplified insurance needs analysis. Actual requirements may vary based on specific goals, existing policies, and risk tolerance."
                 },
                 "calculation_id": f"calc-insurance-{user_id_str}-{int(__import__('time').time())}",
-                "timestamp": __import__('datetime').datetime.utcnow().isoformat() + "Z"
+                "timestamp": legacy_utc_isoformat() + "Z"
             }
         finally:
             db.close()

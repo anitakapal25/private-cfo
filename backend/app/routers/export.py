@@ -1,3 +1,4 @@
+from app.core.time import utc_now, legacy_utc_isoformat
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -165,7 +166,7 @@ async def update_tax_export_template(
         )
 
     # Update fields
-    update_data = template_update.dict(exclude_unset=True)
+    update_data = template_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(template, key, value)
 
@@ -294,7 +295,7 @@ async def create_tax_export(
         file_size_bytes=file_size_bytes,
         is_downloaded=False,
         download_count=0,
-        expires_at=datetime.utcnow() + timedelta(days=30)  # Expires in 30 days
+        expires_at=utc_now() + timedelta(days=30)  # Expires in 30 days
     )
     db.add(db_export)
     db.commit()
@@ -413,7 +414,7 @@ async def create_loan_application_export(
         "loan_application_info": {
             "loan_type": export_request.loan_type,
             "loan_amount_requested": export_request.loan_amount_requested,
-            "application_date": datetime.utcnow().isoformat()
+            "application_date": legacy_utc_isoformat()
         },
         "financial_info": {
             "monthly_income": monthly_income,
@@ -456,7 +457,7 @@ async def create_loan_application_export(
         file_size_bytes=file_size_bytes,
         is_downloaded=False,
         download_count=0,
-        expires_at=datetime.utcnow() + timedelta(days=30)  # Expires in 30 days
+        expires_at=utc_now() + timedelta(days=30)  # Expires in 30 days
     )
     db.add(db_export)
     db.commit()

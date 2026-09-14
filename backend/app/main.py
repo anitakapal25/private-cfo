@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, FileResponse
 from contextlib import asynccontextmanager
 from app.routers import agent_v1, advisor, investment_platform, account_aggregator, community, wellness_program, webhook, export
 from app.auth.router import router as auth_router
@@ -40,6 +41,14 @@ async def financial_output_error_handler(request, exc):
         status_code=503,
         content={"detail": "Financial result failed traceability validation"},
     )
+
+# Packaged desktop clients share the API without permitting arbitrary web origins.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 # Include routers with /api prefix
 app.include_router(auth_router, prefix="/api/auth")
@@ -83,6 +92,15 @@ async def readiness_check():
 # Mount static files for frontend
 # Try the production build directory first
 frontend_dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "..", "frontend", "dist")
+@app.get("/verify-email", include_in_schema=False)
+@app.get("/reset-password", include_in_schema=False)
+async def account_link_page():
+    index = os.path.join(frontend_dist_path, "index.html")
+    if not os.path.isfile(index):
+        raise HTTPException(status_code=503, detail="The agent interface is not built yet")
+    return FileResponse(index, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
 if os.path.exists(frontend_dist_path):
     app.mount("/", StaticFiles(directory=frontend_dist_path, html=True), name="frontend")
 else:

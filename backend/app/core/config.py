@@ -1,9 +1,13 @@
 """Validated application configuration and database session management."""
 
 import logging
+import re
 import secrets
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from cryptography.fernet import Fernet
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -111,6 +115,20 @@ class Settings(BaseSettings):
             self.email_from_address, self.public_app_url,
         )):
             raise ValueError("SMTP email delivery requires host, credentials, from address, and public app URL")
+        if self.enable_public_registration:
+            if not self.enable_mfa:
+                raise ValueError("Public registration requires MFA")
+            try:
+                Fernet((self.encryption_key or "").encode())
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Public registration requires a valid encryption key") from exc
+        if self.email_delivery_mode == "smtp":
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", self.email_from_address or ""):
+                raise ValueError("EMAIL_FROM_ADDRESS must be a sender email address")
+            url = urlsplit(self.public_app_url or "")
+            local_http = self.environment.lower() in {"development", "test"} and url.scheme == "http" and url.hostname in {"localhost", "127.0.0.1", "::1"}
+            if (url.scheme != "https" and not local_http) or not url.hostname or url.username or url.password or url.query or url.fragment or url.path not in {"", "/"}:
+                raise ValueError("PUBLIC_APP_URL must be an HTTPS origin (loopback HTTP is allowed in development)")
         return self
 
     @property

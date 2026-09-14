@@ -1,6 +1,5 @@
 from sqlalchemy import Column, DateTime, Boolean, Integer, String, CHAR, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from .base import Base, BaseModel
 from .advisor import AdvisorConsent
@@ -9,7 +8,6 @@ from .wellness_program import UserWellnessParticipation
 from .webhook import WebhookSubscription
 from .export import TaxExport, LoanApplicationExport
 import uuid
-from datetime import date, datetime
 
 class User(Base, BaseModel):
     """User model representing a financial freedom copilot user."""

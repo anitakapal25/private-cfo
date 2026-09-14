@@ -104,6 +104,37 @@ def consume_challenge(db: Session, token: str, challenge_type: str) -> User:
     return user
 
 
+@router.get("/capabilities")
+def auth_capabilities(settings: Settings = Depends(get_settings)) -> dict[str, bool]:
+    return {"registration_available": settings.enable_public_registration,
+            "password_reset_available": settings.email_delivery_mode == "smtp"}
+
+
+@router.post("/verification/resend", status_code=status.HTTP_202_ACCEPTED)
+async def resend_verification(
+    payload: PasswordResetRequest, request: Request,
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+) -> dict[str, str]:
+    if not settings.enable_public_registration:
+        raise HTTPException(status_code=403, detail="Registration is not enabled for this release")
+    email = normalize_email(payload.email)
+    enforce_rate_limit(db, "verification_ip", request.client.host if request.client else "unknown", limit=10)
+    enforce_rate_limit(db, "verification_email", email, limit=3)
+    db.commit()  # Failed deliveries also count toward the abuse limit.
+    user = db.query(User).join(Profile).filter(
+        Profile.email_address == email, Profile.email_verified.is_(False), User.is_active.is_(True),
+    ).with_for_update().first()
+    if user is not None:
+        token = record_challenge(db, user, "email_verification")
+        try:
+            await delivery_for(settings).send_verification(email, token)
+        except EmailDeliveryUnavailableError:
+            db.rollback()  # Preserve the previous link when delivery fails.
+        else:
+            db.commit()
+    return {"detail": "If the account needs verification, a verification email will arrive shortly. Check your inbox and spam folder."}
+
+
 @router.post("/register", status_code=status.HTTP_202_ACCEPTED)
 async def register(
     payload: RegisterRequest,
@@ -119,7 +150,7 @@ async def register(
     existing = db.query(Profile).filter(Profile.email_address == email).first()
     if existing is not None:
         db.commit()
-        return {"detail": "If this email can register, a verification message will arrive shortly."}
+        return {"detail": "If this email can register, check your inbox for a verification link before signing in."}
     try:
         user = User(hashed_password=get_password_hash(payload.password), is_active=True, role="user")
     except ValueError as exc:
@@ -134,7 +165,7 @@ async def register(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Registration email is temporarily unavailable") from exc
     db.commit()
-    return {"detail": "Check your email for a verification link before signing in."}
+    return {"detail": "If this email can register, check your inbox for a verification link before signing in."}
 
 
 @router.post("/verify-email")
@@ -143,7 +174,7 @@ def verify_email(payload: TokenRequest, db: Session = Depends(get_db)) -> dict[s
     if user.profile is not None:
         user.profile.email_verified = True
     db.commit()
-    return {"detail": "Email verified. Sign in to set up multi-factor authentication."}
+    return {"detail": "Email verified. Sign in here or return to the desktop agent to sign in and set up your authenticator."}
 
 
 @router.post("/password-reset", status_code=status.HTTP_202_ACCEPTED)
