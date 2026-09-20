@@ -24,16 +24,17 @@ def test_demo_requires_generated_secrets(monkeypatch):
         demo.configure_demo()
 
 
-def test_demo_disables_external_services_and_keeps_mfa(monkeypatch):
+def test_demo_disables_external_services_and_preserves_explicit_auth_delivery(monkeypatch):
     monkeypatch.setattr(demo.os, "environ", {
         "ENVIRONMENT": "demo", "JWT_SECRET": "j" * 40,
         "DEMO_ENCRYPTION_SEED": "e" * 40, "DEMO_PASSWORD": "p" * 40,
         "ENABLE_EXTERNAL_MODEL": "true", "ENABLE_PUBLIC_REGISTRATION": "true",
-        "ENABLE_MFA": "false",
+        "EMAIL_DELIVERY_MODE": "smtp", "ENABLE_MFA": "false",
     })
     demo.configure_demo()
     assert demo.os.environ["ENABLE_EXTERNAL_MODEL"] == "false"
-    assert demo.os.environ["ENABLE_PUBLIC_REGISTRATION"] == "false"
+    assert demo.os.environ["ENABLE_PUBLIC_REGISTRATION"] == "true"
+    assert demo.os.environ["EMAIL_DELIVERY_MODE"] == "smtp"
     assert demo.os.environ["ENABLE_MFA"] == "true"
     assert len(base64.urlsafe_b64decode(demo.os.environ["ENCRYPTION_KEY"])) == 32
 
@@ -52,8 +53,8 @@ def session():
     configure_mappers()
     return MagicMock()
 
-with patch("app.core.config.SessionLocal", side_effect=session), \\
-     patch("start_demo.subprocess.run") as migrate, \\
+with patch("app.core.config.SessionLocal", side_effect=session), \
+     patch("start_demo.subprocess.run") as migrate, \
      patch("start_demo.os.execvp") as launch:
     start_demo.main()
     migrate.assert_called_once()
@@ -65,6 +66,8 @@ with patch("app.core.config.SessionLocal", side_effect=session), \\
             "ENVIRONMENT": "demo", "DATABASE_URL": "sqlite://",
             "JWT_SECRET": "j" * 40, "DEMO_ENCRYPTION_SEED": "e" * 40,
             "DEMO_PASSWORD": "p" * 40,
+            "ENABLE_PUBLIC_REGISTRATION": "false",
+            "EMAIL_DELIVERY_MODE": "disabled",
         },
         capture_output=True, text=True, timeout=30,
     )
