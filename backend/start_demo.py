@@ -17,14 +17,13 @@ def configure_demo():
         hashlib.sha256(os.environ["DEMO_ENCRYPTION_SEED"].encode()).digest()
     ).decode()
     for key in (
-        "ENABLE_EXTERNAL_MODEL", "ENABLE_PUBLIC_REGISTRATION",
+        "ENABLE_EXTERNAL_MODEL",
         "ENABLE_FINANCIAL_INTEGRATIONS", "ENABLE_BACKGROUND_SYNC",
         "ENABLE_PROACTIVE_REVIEWS", "ENABLE_EXTERNAL_WEBHOOKS",
         "ENABLE_ADVISOR_ACCESS", "ENABLE_COMMUNITY_BENCHMARKS",
         "ENABLE_WELLNESS_PROGRAMS", "ENABLE_DATA_EXPORTS",
     ):
         os.environ[key] = "false"
-    os.environ["EMAIL_DELIVERY_MODE"] = "disabled"
     os.environ["ENABLE_MFA"] = "true"
 
 
