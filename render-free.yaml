@@ -22,6 +22,8 @@ services:
         generateValue: true
       - key: ENABLE_CONVERSATIONAL_AGENT
         value: "true"
+      - key: CONVERSATIONAL_MODEL
+        value: gpt-6-luna
       - key: ENABLE_EXTERNAL_MODEL
         value: "false"
       - key: ENABLE_MFA

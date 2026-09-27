@@ -79,6 +79,11 @@ minimal topic/period state; current composition receives evidence references/sta
 not transcripts or private amounts. Existing automatic explanation behavior has its
 own minimized evidence boundary.
 
+Non-calculation web research receives only the sanitized current question and date.
+Conversation execution audit metadata retains bounded public-source evidence (stable
+source ID, title, and HTTPS URL), not fetched page bodies, credentials, private amounts,
+or raw questions. These references remain subject to the audit-record retention policy.
+
 `clear_owned_conversation_runtime` clears state and request caches for an owned
 conversation inside the caller's rights transaction. It does not erase messages,
 calculations, audit records, backups or provider data. End-user erasure orchestration,

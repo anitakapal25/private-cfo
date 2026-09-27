@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 from app.core.conversation_gateway import ScriptedConversationGateway
+from app.core.conversation_gateway import WebResearchError
 from app.services.conversation_agent import ConversationAgent, local_plan, requested_period
 from app.services.conversation_contracts import ConversationState, ToolEvidence, ToolRequest, Plan
 from app.services.conversation_tools import ConversationToolExecutor
@@ -109,12 +110,15 @@ def test_disconnect_stops_further_execution():
 
 
 def test_product_selection_does_not_send_financial_state():
-    gateway = ScriptedConversationGateway([{"calls": [{"name": "calculate_net_worth"}]}])
+    gateway = ScriptedConversationGateway(research={
+        "answer": "Compare product mandates, risks, costs, liquidity, and diversification using official disclosures. Consult a registered adviser for a personalized decision.",
+        "sources": [{"source_id": "ws_sebi", "title": "SEBI Investor Education", "url": "https://investor.sebi.gov.in/"}],
+    })
     agent, answer, _, _ = run("Which mutual fund or stock should I buy?", gateway=gateway, state={"tools": ["calculate_net_worth"], "evidence_references": ["private-result"]})
-    assert all(call.name == "lookup_finance_topic" for call, _ in agent.executor.calls)
+    assert not agent.executor.calls
     assert "private-result" not in str(gateway.requests)
-    assert gateway.requests[0]["allowed_tools"] == ["lookup_finance_topic"]
-    assert "SEBI-registered" in answer.narrative
+    assert gateway.requests[0]["question"] == "Which mutual fund or stock should I buy?"
+    assert answer.blocks[0]["type"] == "web_research"
 
 
 def test_injection_denied_before_model():
@@ -133,19 +137,40 @@ def test_tax_calculation_stays_blocked():
     assert answer.blocks[0]["code"] == "STALE_ASSUMPTION" and not agent.executor.calls
 
 
-@pytest.mark.parametrize("question", [
-    "What is the current EPF interest rate?",
-    "What is the latest tax slab?",
-    "What is this fund's current NAV?",
-    "What are the latest NPS rules?",
-])
-def test_uncovered_current_information_is_not_answered_from_model_memory(question):
-    gateway = ScriptedConversationGateway([{"calls": [{"name": "lookup_finance_topic", "arguments": {"topic": "investing"}}]}])
+@pytest.mark.parametrize("question", ["What is tax regime?", "What are the latest NPS rules?"])
+def test_non_calculation_questions_use_cited_web_research(question):
+    gateway = ScriptedConversationGateway(research={
+        "answer": "A tax regime is a set of rules used to determine how income is taxed. Review the official guidance for current details.",
+        "sources": [{"source_id": "ws_tax", "title": "Income Tax Department", "url": "https://www.incometax.gov.in/"}],
+    })
     agent, answer, _, used = run(question, gateway=gateway)
-    assert not used
-    assert not gateway.requests
+    assert used
     assert not agent.executor.calls
-    assert answer.blocks[0]["code"] == "CURRENT_INFORMATION_UNAVAILABLE"
+    assert answer.blocks[0]["type"] == "web_research"
+    assert agent.metrics["web_sources"][0]["source_id"] == "ws_tax"
+    assert "regime" in answer.narrative
+
+
+def test_web_research_failure_falls_back_to_reviewed_catalogue():
+    gateway = ScriptedConversationGateway(research=WebResearchError("provider_rate_limited"))
+    agent, _, _, used = run("What is tax?", gateway=gateway)
+    assert not used and agent.metrics["fallback"]
+    assert agent.metrics["web_failure_category"] == "provider_rate_limited"
+    assert agent.executor.calls[0][0].name == "lookup_finance_topic"
+    assert agent.executor.calls[0][0].arguments.topic == "tax"
+
+
+def test_tax_fallback_explains_regime_instead_of_tax_return_requirements():
+    result = lookup_topic("tax", today=date(2026, 9, 11))
+    assert "framework of rules" in result["content"]
+    assert "different from a tax return" in result["content"]
+
+
+def test_calculation_question_does_not_use_web_research():
+    gateway = ScriptedConversationGateway([{"calls": [{"name": "calculate_net_worth"}]}])
+    agent, _, _, used = run("What is my net worth?", gateway=gateway)
+    assert used and agent.metrics["web_search_calls"] == 0
+    assert agent.executor.calls[0][0].name == "calculate_net_worth"
 
 @pytest.mark.parametrize("entry", CATALOGUE, ids=lambda e: e.topic)
 def test_sources_are_dated_and_fail_closed(entry):
@@ -181,6 +206,38 @@ def test_live_gateway_uses_strict_minimized_responses_contract(monkeypatch):
     assert body["store"] is False and body["model"] == "test-model"
     assert body["text"]["format"]["strict"] is True
     assert "user_id" not in str(body)
+
+
+def test_live_gateway_web_research_requires_and_returns_https_citations(monkeypatch):
+    import httpx
+    from app.core.conversation_gateway import OpenAIConversationGateway
+    requests = []
+    def respond(request):
+        import json
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"status": "completed", "output": [
+            {"type": "web_search_call", "action": {"sources": [{"title": "Official tax guidance", "url": "https://www.incometax.gov.in/"}]}},
+            {"type": "message", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "A tax regime is the framework of rules used to determine taxation.", "annotations": [{"type": "url_citation", "title": "Official tax guidance", "url": "https://www.incometax.gov.in/"}]}]},
+        ]})
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(respond), **kwargs))
+    result = asyncio.run(OpenAIConversationGateway("synthetic", "test-model").research({"question": "What is tax regime?"}))
+    assert result.sources[0].url == "https://www.incometax.gov.in/"
+    assert requests[0]["store"] is False
+    assert requests[0]["tools"] == [{"type": "web_search"}]
+    assert requests[0]["include"] == ["web_search_call.action.sources"]
+
+
+def test_live_gateway_classifies_rate_limit_without_logging_provider_body(monkeypatch):
+    import httpx
+    from app.core.conversation_gateway import OpenAIConversationGateway
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(
+        transport=httpx.MockTransport(lambda request: httpx.Response(429, json={"error": {"message": "sensitive provider detail"}})),
+        **kwargs,
+    ))
+    with pytest.raises(WebResearchError, match="provider_rate_limited"):
+        asyncio.run(OpenAIConversationGateway("synthetic", "test-model").research({"question": "What is tax regime?"}))
 
 
 def test_future_period_is_not_used():

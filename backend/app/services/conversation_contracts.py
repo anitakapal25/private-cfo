@@ -45,6 +45,15 @@ class EvidenceSelection(StrictModel):
     # No free-form financial prose: server renders authorized text and values.
     references: list[str] = Field(max_length=8)
 
+class WebSource(StrictModel):
+    source_id: str = Field(min_length=1, max_length=64)
+    title: str = Field(min_length=1, max_length=300)
+    url: str = Field(min_length=1, max_length=2000)
+
+class WebResearchResult(StrictModel):
+    answer: str = Field(min_length=1, max_length=6000)
+    sources: list[WebSource] = Field(min_length=1, max_length=8)
+
 class ToolEvidence(StrictModel):
     reference: str
     tool_name: ToolName

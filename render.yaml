@@ -23,6 +23,8 @@ services:
         sync: false
       - key: EXTERNAL_MODEL_PROVIDER
         value: openai
+      - key: CONVERSATIONAL_MODEL
+        value: gpt-6-luna
       - key: EXTERNAL_MODEL_APPROVAL_REFERENCE
         sync: false
       - key: ENABLE_EXTERNAL_MODEL
