@@ -12,6 +12,7 @@ from app.guardrails.regulatory_language import evaluate_financial_request, Decis
 from app.services.agent_orchestrator import AgentAnswer, AgentOrchestrator, Intent
 from app.services.conversation_contracts import ConversationState, Plan, ToolRequest, ToolArguments, EvidenceSelection
 from app.services.conversation_tools import HANDLERS
+from app.core.conversation_gateway import WebResearchError
 
 OVERVIEW = ["calculate_net_worth", "calculate_monthly_surplus", "calculate_emergency_fund_coverage", "calculate_debt_metrics", "get_goal_progress"]
 TOPIC_WORDS = {"budgeting": ("budget", "income", "spending", "cash flow", "saving"), "debt": ("debt", "loan", "emi", "borrow"), "emergency_fund": ("emergency", "reserve"), "investing": ("invest", "fund", "stock", "diversif", "compound", "inflation"), "insurance": ("insurance", "coverage", "policy"), "retirement": ("retire", "pension", "epf", "nps", "freedom"), "tax": ("tax", "itr", "tds")}
@@ -78,7 +79,7 @@ class ConversationAgent:
     def __init__(self, executor, gateway=None, *, max_rounds=2, max_tools=8, timeout=30):
         self.executor, self.gateway = executor, gateway
         self.max_rounds, self.max_tools, self.timeout = min(max_rounds, 2), min(max_tools, 8), min(timeout, 30)
-        self.metrics = {"planner_calls": 0, "tool_calls": 0, "fallback": False, "validation_rejections": 0, "source_hits": 0, "tool_failures": 0}
+        self.metrics = {"planner_calls": 0, "tool_calls": 0, "web_search_calls": 0, "web_sources": [], "web_failure_category": None, "fallback": False, "validation_rejections": 0, "source_hits": 0, "tool_failures": 0}
 
     async def answer(self, question, state=None, *, disconnected=None, today=None):
         started = time.monotonic()
@@ -104,20 +105,6 @@ class ConversationAgent:
                 and any(subject in normalized_question for subject in CURRENT_INFORMATION_SUBJECTS)
             )
         )
-        if asks_for_current_information:
-            answer = AgentAnswer(
-                Intent.GENERAL_EDUCATION,
-                "I do not have reviewed current information for that rate, price, limit, or rule.",
-                [{
-                    "type": "unsupported_coverage",
-                    "code": "CURRENT_INFORMATION_UNAVAILABLE",
-                    "content": (
-                        "This request needs a dated official source that is not yet in "
-                        "Artha's approved catalogue. I will not answer it from model memory."
-                    ),
-                }],
-            )
-            return answer, ConversationState(), False
         if re.search(r"\b(?:document|upload|statement|payslip|salary slip)\b", question, re.I):
             answer = AgentAnswer(Intent.DOCUMENT, "Use Documents in the desktop application to review local files. Only confirmed structured facts can be used here.", [{"type": "unsupported_coverage", "code": "LOCAL_DOCUMENT_ONLY", "content": "Documents and extracted text cannot be processed in chat."}])
             return answer, ConversationState(), False
@@ -132,6 +119,33 @@ class ConversationAgent:
         plan = fallback
         used = False
         active = self.gateway
+        calculation_requested = any(call.name in HANDLERS for call in fallback.calls)
+        if active and (asks_for_current_information or public_only or not calculation_requested):
+            try:
+                self.metrics["web_search_calls"] += 1
+                research = await asyncio.wait_for(
+                    active.research({"question": sanitize_question(question), "today": today.isoformat()}),
+                    max(0.01, self.timeout - (time.monotonic() - started)),
+                )
+                if evaluate_financial_request(research.answer).decision == Decision.BLOCK:
+                    raise ValueError("Web research crossed the regulated-language boundary")
+                sources = [source.model_dump() for source in research.sources]
+                self.metrics["web_sources"] = sources
+                self.metrics["source_hits"] = len(sources)
+                self.metrics["latency_ms"] = int((time.monotonic() - started) * 1000)
+                return AgentAnswer(
+                    Intent.GENERAL_EDUCATION,
+                    research.answer,
+                    [{"type": "web_research", "sources": sources,
+                      "limitations": ["General education only; no personalized recommendation or model-generated calculation."]}],
+                    policy_decision="block" if public_only else "allow",
+                ), ConversationState(), True
+            except WebResearchError as exc:
+                self.metrics["web_failure_category"] = exc.category
+                self.metrics["fallback"] = True
+            except Exception:
+                self.metrics["web_failure_category"] = "web_research_validation_failed"
+                self.metrics["fallback"] = True
         # Periods are resolved from the original locally, before amounts are stripped.
         explicit_period = requested_period(question, state, today)
         context = {"question": sanitize_question(question), "state": {"tools": state.tools, "period_start": state.period_start.isoformat() if state.period_start else None, "topic": state.topic, "pending": state.pending}, "today": today.isoformat(),

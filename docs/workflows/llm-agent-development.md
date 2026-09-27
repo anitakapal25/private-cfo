@@ -13,7 +13,16 @@ uses the configured model to propose typed read-only tool requests. The server
 validates and executes requests, then renders authorized evidence. Model composition
 selects evidence references; it cannot emit arbitrary financial prose.
 
-The model is configurable through `CONVERSATIONAL_MODEL`, initially `gpt-6-astra`
+For non-calculation financial-education questions, the configured provider performs a
+web search using only the sanitized question. The answer must cite HTTPS sources and
+must not contain model-generated calculations, financial figures, personalized advice,
+or product rankings. Source IDs, titles, and URLs are retained in sanitized execution
+audit metadata; raw page contents are not retained there. Provider failure falls back
+to the reviewed local catalogue without exposing provider details to the user. Audit
+metadata records only a bounded failure category such as `provider_rate_limited`,
+`provider_timeout`, or `provider_citations_missing`.
+
+The model is configurable through `CONVERSATIONAL_MODEL`, initially `gpt-6-luna`
 for evaluation. Availability and fitness must be established by the release runner.
 The default is not a claim of successful live-provider validation.
 

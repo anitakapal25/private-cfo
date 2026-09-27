@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     enable_background_sync: bool = False
     enable_external_model: bool = False
     enable_conversational_agent: bool = False
-    conversational_model: str = "gpt-6-astra"
+    conversational_model: str = "gpt-6-luna"
     conversational_approval_reference: str | None = None
     conversation_max_rounds: int = Field(default=2, ge=1, le=2)
     conversation_max_tools: int = Field(default=8, ge=1, le=8)

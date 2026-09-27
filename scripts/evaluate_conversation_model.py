@@ -66,7 +66,7 @@ async def evaluate(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", default="gpt-6-astra")
+    parser.add_argument("--model", default="gpt-6-luna")
     parser.add_argument("--max-cost-usd", type=positive_decimal, required=True)
     parser.add_argument("--input-price-per-million", type=positive_decimal, required=True)
     parser.add_argument("--output-price-per-million", type=positive_decimal, required=True)

@@ -132,7 +132,7 @@ This document outlines the recommended technology stack for building Financial F
 
 ### Language Model Integration:
 - **Implemented adapter:** Provider-neutral model gateway with OpenAI Responses support;
-  deployments choose the model through configuration. GPT-6 Astra is the initial
+  deployments choose the model through configuration. GPT-6 Luna is the initial
   conversational evaluation candidate, and ordinary CI uses scripted offline fakes.
 - **Planned:** Additional hosted or local providers after separate privacy, safety,
   latency and quality evaluation. No local-model download or fine-tuning is part of

@@ -1,5 +1,5 @@
 export interface AgentBlock {
-  type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation' | 'clarification' | 'sourced_explanation' | 'unsupported_coverage';
+  type: 'calculation' | 'missing_data' | 'warning' | 'cloud_explanation' | 'clarification' | 'sourced_explanation' | 'web_research' | 'unsupported_coverage';
   source_url?: string;
   publisher?: string;
   reviewed_at?: string;
@@ -17,6 +17,7 @@ export interface AgentBlock {
   provenance?: Array<Record<string, unknown>>;
   rule_versions?: Record<string, string>;
   limitations?: string[];
+  sources?: Array<{ source_id: string; title: string; url: string }>;
   provider?: string;
   policy_bundle_version?: string;
   content?: string;
