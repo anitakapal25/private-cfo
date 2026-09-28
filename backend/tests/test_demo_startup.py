@@ -24,7 +24,7 @@ def test_demo_requires_generated_secrets(monkeypatch):
         demo.configure_demo()
 
 
-def test_demo_disables_external_services_and_preserves_explicit_auth_delivery(monkeypatch):
+def test_demo_preserves_approved_model_and_explicit_auth_delivery(monkeypatch):
     monkeypatch.setattr(demo.os, "environ", {
         "ENVIRONMENT": "demo", "JWT_SECRET": "j" * 40,
         "DEMO_ENCRYPTION_SEED": "e" * 40, "DEMO_PASSWORD": "p" * 40,
@@ -32,7 +32,7 @@ def test_demo_disables_external_services_and_preserves_explicit_auth_delivery(mo
         "EMAIL_DELIVERY_MODE": "smtp", "ENABLE_MFA": "false",
     })
     demo.configure_demo()
-    assert demo.os.environ["ENABLE_EXTERNAL_MODEL"] == "false"
+    assert demo.os.environ["ENABLE_EXTERNAL_MODEL"] == "true"
     assert demo.os.environ["ENABLE_PUBLIC_REGISTRATION"] == "true"
     assert demo.os.environ["EMAIL_DELIVERY_MODE"] == "smtp"
     assert demo.os.environ["ENABLE_MFA"] == "true"

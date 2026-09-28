@@ -13,7 +13,9 @@
 synthetic testing only. It does not replace the paid real-user pilot below.
 `backend/start_demo.py` runs migrations at startup (free services do not use the
 paid pre-deploy step), creates one non-admin `demo@example.com` account, preserves
-MFA, and forces external models, integrations, email and public registration off.
+MFA, and forces financial integrations and other unapproved ecosystem features off.
+External-model use remains subject to the same provider, secret and approval-reference
+configuration gates as other deployments.
 Use the Render-generated `DEMO_PASSWORD` from the service's Environment page to
 sign in, then enroll an authenticator. Never put real financial data in this demo.
 Existing accounts/passwords are not reset at restart. Startup isolation is covered
