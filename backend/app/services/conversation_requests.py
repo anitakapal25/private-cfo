@@ -13,9 +13,18 @@ from app.services.conversation_contracts import VERSION
 from app.services.conversation_tools import ConversationToolExecutor
 from app.services.agent_policy import TOOL_REGISTRY
 from app.services.conversation_agent import ConversationAgent
-from app.core.conversation_gateway import OpenAIConversationGateway
+from app.core.conversation_gateway import OpenAIConversationGateway, OllamaConversationGateway, ResilientConversationGateway
 
-GATEWAY_FACTORY = OpenAIConversationGateway
+def build_conversation_gateway(settings):
+    providers = []
+    if settings.automatic_model_enabled:
+        providers.append(OpenAIConversationGateway(settings.openai_api_key, settings.conversational_model))
+    if settings.enable_ollama_fallback and settings.ollama_model:
+        providers.append(OllamaConversationGateway(settings.ollama_model, settings.ollama_timeout_seconds))
+    return ResilientConversationGateway(providers) if providers else None
+
+
+GATEWAY_FACTORY = build_conversation_gateway
 
 def reserve_request(db, user_id, conversation_id, payload, secret):
     owned = db.query(Conversation).filter_by(user_id=user_id, conversation_id=conversation_id).first()
@@ -66,7 +75,7 @@ async def process_conversation(db, user_id, conversation, payload, settings, dis
             db.execute(text("SET LOCAL statement_timeout = '2000ms'"))
             db.execute(text("SET LOCAL lock_timeout = '1000ms'"))
         executor = ConversationToolExecutor(db, user_id, freedom_inputs=freedom_inputs, assumption_metadata=assumption_metadata, coverage_target=payload.user_selected_coverage_target)
-        gateway = GATEWAY_FACTORY(settings.openai_api_key, settings.conversational_model) if settings.automatic_model_enabled else None
+        gateway = GATEWAY_FACTORY(settings) if settings.model_assistance_enabled else None
         agent = ConversationAgent(executor, gateway, max_rounds=settings.conversation_max_rounds, max_tools=settings.conversation_max_tools, timeout=settings.conversation_timeout_seconds)
         answer, state, used = await agent.answer(payload.content, conversation.conversation_state, disconnected=disconnected)
         db.add(ConversationMessage(message_id=uuid4(), conversation_id=conversation.conversation_id, role="user", content=payload.content, structured_content={}))
@@ -85,7 +94,9 @@ async def process_conversation(db, user_id, conversation, payload, settings, dis
                 outcome="unavailable", result_reference=None))
         db.add(AuditEvent(user_id=user_id, event_type="conversation_execution", target_type="agent_run", target_id=str(run.run_id), outcome="fallback" if agent.metrics["fallback"] else "success", metadata_json={"version": VERSION, **agent.metrics}))
         conversation.conversation_state = state.model_dump(mode="json")
-        response = {"message_id": str(message.message_id), "run_id": str(run.run_id), "role": "assistant", "content": answer.narrative, "blocks": answer.blocks, "model_used": used, "created_at": (message.created_at or datetime.now(timezone.utc)).isoformat()}
+        response = {"message_id": str(message.message_id), "run_id": str(run.run_id), "role": "assistant", "content": answer.narrative, "blocks": answer.blocks, "model_used": used,
+                    "model_provider": agent.metrics["model_provider"], "model_name": agent.metrics["model_name"], "fallback_used": agent.metrics["fallback"],
+                    "created_at": (message.created_at or datetime.now(timezone.utc)).isoformat()}
         row.response, row.status, row.updated_at = response, "complete", datetime.now(timezone.utc)
         db.commit()
         return response

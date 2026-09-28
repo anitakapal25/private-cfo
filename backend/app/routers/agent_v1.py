@@ -144,6 +144,9 @@ class MessageResponse(BaseModel):
     content: str
     blocks: list[dict[str, Any]]
     model_used: bool
+    model_provider: str | None = None
+    model_name: str | None = None
+    fallback_used: bool = False
     created_at: datetime
 
 

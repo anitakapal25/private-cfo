@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     enable_external_model: bool = False
     enable_conversational_agent: bool = False
     conversational_model: str = "gpt-6-luna"
+    enable_ollama_fallback: bool = False
+    ollama_model: str | None = None
+    ollama_timeout_seconds: float = Field(default=8, gt=0, le=30)
     conversational_approval_reference: str | None = None
     conversation_max_rounds: int = Field(default=2, ge=1, le=2)
     conversation_max_tools: int = Field(default=8, ge=1, le=8)
@@ -102,6 +105,8 @@ class Settings(BaseSettings):
             raise ValueError(
                 "External model use requires the approved OpenAI provider, API key, and release approval reference"
             )
+        if self.enable_ollama_fallback and not self.ollama_model:
+            raise ValueError("Ollama fallback requires OLLAMA_MODEL")
         if self.enable_conversational_agent and self.environment.lower() in {"production", "staging", "pilot"} and not self.conversational_approval_reference:
             raise ValueError("Conversational agent requires release approval outside development")
         if self.email_delivery_mode not in {"disabled", "smtp"}:
@@ -140,6 +145,10 @@ class Settings(BaseSettings):
             and self.openai_api_key
             and self.external_model_approval_reference
         )
+
+    @property
+    def model_assistance_enabled(self) -> bool:
+        return self.automatic_model_enabled or bool(self.enable_ollama_fallback and self.ollama_model)
 
 
 @lru_cache

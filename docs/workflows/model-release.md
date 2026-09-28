@@ -1,7 +1,7 @@
 # Model, Prompt and Tool Release Workflow
 
 **Status:** Required release procedure; conversational live-provider approval pending
-**Last reviewed:** 2026-09-11
+**Last reviewed:** 2026-09-28
 **Owner:** AI safety and product
 
 ## Current implementation and policy
@@ -9,8 +9,10 @@
 The application supports optional automatic explanations and a separately flagged
 read-only conversational planner. Both require configured provider eligibility.
 Conversational planning accepts typed requests; financial arithmetic and persisted
-facts remain application-owned. Composition accepts authorized evidence references
-only. See [development workflow](llm-agent-development.md) for exact runtime limits.
+facts remain application-owned. Composition accepts authorized deterministic evidence,
+returns every evidence reference, and may emit only number-free explanatory prose.
+The runtime validates those boundaries before showing it. See
+[development workflow](llm-agent-development.md) for exact runtime limits.
 
 This personal project uses server-controlled automatic assistance with `store: false`.
 Legacy conversation-consent APIs do not gate automatic execution. Standard provider
@@ -35,9 +37,10 @@ retention terms apply; do not claim Zero Data Retention or completed privacy ope
 
 A passing JSON schema is not proof that a selected tool answers the user's question.
 Review representative conversational tasks and incorrect-but-valid tool selections.
-The current model cannot add arbitrary prose: the server resolves evidence references
-and renders deterministic explanations. More expressive composition needs additional
-claim-grounding evidence before release.
+The model may add bounded number-free prose. The server rejects unknown references,
+figures, currency symbols and regulated recommendations, then falls back to the
+deterministic narrative. More expressive composition needs additional claim-grounding
+evidence before release.
 
 Source review and tax-rule approval are separate. Reading a current official page
 cannot enable an expired calculator. Real financial documents and credentials remain
