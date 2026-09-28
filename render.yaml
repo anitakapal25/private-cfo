@@ -25,10 +25,16 @@ services:
         value: openai
       - key: CONVERSATIONAL_MODEL
         value: gpt-6-luna
-      - key: EXTERNAL_MODEL_APPROVAL_REFERENCE
-        sync: false
-      - key: ENABLE_EXTERNAL_MODEL
+      - key: ENABLE_CONVERSATIONAL_AGENT
+        value: "true"
+      - key: CONVERSATIONAL_APPROVAL_REFERENCE
+        value: owner-approved-2026-09-28
+      - key: ENABLE_OLLAMA_FALLBACK
         value: "false"
+      - key: EXTERNAL_MODEL_APPROVAL_REFERENCE
+        value: owner-approved-2026-09-28
+      - key: ENABLE_EXTERNAL_MODEL
+        value: "true"
       - key: ENABLE_PUBLIC_REGISTRATION
         value: "false"
       - key: EMAIL_DELIVERY_MODE

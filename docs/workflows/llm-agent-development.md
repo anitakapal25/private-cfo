@@ -1,26 +1,37 @@
 # Conversational Finance Agent Development
 
 **Status:** Implemented behind a disabled-by-default flag; live-provider and production release gated
-**Last reviewed:** 2026-09-11
+**Last reviewed:** 2026-09-28
 **Owner:** Engineering and AI safety
 
 ## Current behavior
 
 `ENABLE_CONVERSATIONAL_AGENT=false` preserves deterministic keyword routing with an
-optional automatic OpenAI explanation. Enabling the flag selects the bounded
-conversational service. It works locally with deterministic routing and optionally
-uses the configured model to propose typed read-only tool requests. The server
-validates and executes requests, then renders authorized evidence. Model composition
-selects evidence references; it cannot emit arbitrary financial prose.
+optional automatic model explanation. Enabling the flag selects the bounded
+conversational service. It works with deterministic routing and may use an approved
+OpenAI model followed by an optional local Ollama fallback to propose typed read-only
+tool requests. The server validates and executes requests. Model composition may add
+a short number-free explanation grounded in deterministic evidence and must return
+every evidence reference exactly once. Exact figures remain server-rendered.
 
 For non-calculation financial-education questions, the configured provider performs a
 web search using only the sanitized question. The answer must cite HTTPS sources and
 must not contain model-generated calculations, financial figures, personalized advice,
-or product rankings. Source IDs, titles, and URLs are retained in sanitized execution
+or product rankings. Jurisdiction-neutral questions default to India and prefer the
+relevant Indian tax or financial regulator; another jurisdiction is used only when the
+user asks for it. Source IDs, titles, and URLs are retained in sanitized execution
 audit metadata; raw page contents are not retained there. Provider failure falls back
 to the reviewed local catalogue without exposing provider details to the user. Audit
 metadata records only a bounded failure category such as `provider_rate_limited`,
 `provider_timeout`, or `provider_citations_missing`.
+
+The provider chain retries one transient failure, then advances from OpenAI to Ollama.
+Repeated failures open a short in-process circuit. If all model providers fail, the
+deterministic local planner and renderer answer without a cloud-failure warning.
+Ollama uses the fixed `127.0.0.1:11434` endpoint and is disabled by default. On a
+hosted backend it refers to Ollama on that backend host; browser code cannot reach a
+user's desktop Ollama through the hosted service. Cited web research remains an
+OpenAI capability and never falls back to uncited Ollama knowledge.
 
 The model is configurable through `CONVERSATIONAL_MODEL`, initially `gpt-6-luna`
 for evaluation. Availability and fitness must be established by the release runner.
@@ -77,7 +88,9 @@ approval/configuration. Pilot, staging and production also require
 not proof of independent review; deployment owners must retain actual evidence.
 
 Send the sanitized current question, validated topic/period state and minimal tool
-status evidence. Current planning/composition needs no personal amounts or transcripts.
+status evidence. Composition receives authorized deterministic narratives so it can
+explain their meaning; its output is rejected if it includes a digit, currency symbol,
+unknown reference, regulated recommendation or invented evidence.
 Use `store: false`; standard provider retention is not Zero Data Retention.
 Legacy per-conversation consent endpoints are compatibility records, not switches for
 automatic assistance. Update public notices and obtain applicable operational/legal
@@ -91,6 +104,6 @@ use to keep conversational deterministic fallback without cloud requests.
 
 ## Planned extensions
 
-Free-form grounded paraphrasing, broader official knowledge coverage, dynamic public
-web search, richer comparisons, chat mutations, local models and fine-tuning remain
-planned. No framework or training pipeline is required for the current implementation.
+Broader official knowledge coverage, richer comparisons, chat mutations, direct
+desktop-to-Ollama orchestration and fine-tuning remain planned. No framework or
+training pipeline is required for the current implementation.

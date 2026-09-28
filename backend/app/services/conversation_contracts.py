@@ -41,9 +41,15 @@ class ConversationState(StrictModel):
     pending: Literal["topic", "period", "verified_facts"] | None = None
     evidence_references: list[str] = Field(default_factory=list, max_length=8)
 
-class EvidenceSelection(StrictModel):
-    # No free-form financial prose: server renders authorized text and values.
+class GroundedExplanation(StrictModel):
+    # Exact figures stay in server-rendered evidence. This prose must remain number-free.
+    summary: str = Field(min_length=1, max_length=1200)
     references: list[str] = Field(max_length=8)
+    limitations: list[str] = Field(default_factory=list, max_length=4)
+
+
+# Compatibility name for older imports while the conversation contract evolves.
+EvidenceSelection = GroundedExplanation
 
 class WebSource(StrictModel):
     source_id: str = Field(min_length=1, max_length=64)

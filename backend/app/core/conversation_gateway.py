@@ -1,11 +1,22 @@
 """Bounded structured planning over Responses; provider-neutral protocol and offline fake."""
 import json
+import asyncio
 import hashlib
+import time
 from urllib.parse import urlsplit
 from typing import Protocol
 import httpx
 from pydantic import BaseModel
-from app.services.conversation_contracts import Plan, EvidenceSelection, WebResearchResult, WebSource, VERSION
+from app.services.conversation_contracts import Plan, GroundedExplanation, WebResearchResult, WebSource, VERSION
+
+
+class ProviderFailure(RuntimeError):
+    """Sanitized provider failure suitable for fallback and audit metadata."""
+
+    def __init__(self, category: str, *, transient: bool = False):
+        super().__init__(category)
+        self.category = category
+        self.transient = transient
 
 
 class WebResearchError(RuntimeError):
@@ -17,7 +28,7 @@ class WebResearchError(RuntimeError):
 
 class ConversationGateway(Protocol):
     async def plan(self, context: dict) -> Plan: ...
-    async def compose(self, context: dict) -> EvidenceSelection: ...
+    async def compose(self, context: dict) -> GroundedExplanation: ...
     async def research(self, context: dict) -> WebResearchResult: ...
 
 class ScriptedConversationGateway:
@@ -36,7 +47,11 @@ class ScriptedConversationGateway:
 
     async def compose(self, context):
         self.requests.append(context)
-        return EvidenceSelection.model_validate(self.selection or {"references": [e["reference"] for e in context["evidence"]]})
+        return GroundedExplanation.model_validate(self.selection or {
+            "summary": "Here is what your verified financial information shows.",
+            "references": [e["reference"] for e in context["evidence"]],
+            "limitations": [],
+        })
 
     async def research(self, context):
         self.requests.append(context)
@@ -61,8 +76,11 @@ def strict_schema(schema):
     return schema
 
 class OpenAIConversationGateway:
+    supports_research = True
+
     def __init__(self, api_key: str, model: str):
         self.api_key, self.model = api_key, model
+        self.provider_name = "openai"
 
     async def _request(self, context: dict, output_type: type[BaseModel], instructions: str):
         payload = {
@@ -74,19 +92,39 @@ class OpenAIConversationGateway:
         }
         if len(json.dumps(payload).encode()) > 24000:
             raise ValueError("Model request exceeded input bound")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(8, connect=3), trust_env=False) as client:
-            async with client.stream("POST", "https://api.openai.com/v1/responses", headers={"Authorization": f"Bearer {self.api_key}"}, json=payload) as response:
-                response.raise_for_status()
-                chunks = bytearray()
-                async for chunk in response.aiter_bytes():
-                    chunks.extend(chunk)
-                    if len(chunks) > 128_000:
-                        raise ValueError("Provider response exceeded limit")
-        body = json.loads(chunks)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(8, connect=3), trust_env=False) as client:
+                async with client.stream("POST", "https://api.openai.com/v1/responses", headers={"Authorization": f"Bearer {self.api_key}"}, json=payload) as response:
+                    if response.status_code == 429:
+                        raise ProviderFailure("provider_rate_limited", transient=True)
+                    if response.status_code in {401, 403}:
+                        raise ProviderFailure("provider_authentication_failed")
+                    if response.status_code >= 500:
+                        raise ProviderFailure("provider_unavailable", transient=True)
+                    if response.status_code >= 400:
+                        raise ProviderFailure("provider_request_rejected")
+                    chunks = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        chunks.extend(chunk)
+                        if len(chunks) > 128_000:
+                            raise ProviderFailure("provider_response_too_large")
+        except ProviderFailure:
+            raise
+        except httpx.TimeoutException as exc:
+            raise ProviderFailure("provider_timeout", transient=True) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderFailure("provider_transport_error", transient=True) from exc
+        try:
+            body = json.loads(chunks)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ProviderFailure("provider_response_invalid") from exc
         if body.get("status") != "completed":
-            raise ValueError("Provider response incomplete")
+            raise ProviderFailure("provider_response_incomplete")
         parts = [c.get("text", "") for item in body.get("output", []) if item.get("type") == "message" and item.get("role") == "assistant" and item.get("status") == "completed" for c in item.get("content", []) if c.get("type") == "output_text"]
-        return output_type.model_validate_json("".join(parts))
+        try:
+            return output_type.model_validate_json("".join(parts))
+        except Exception as exc:
+            raise ProviderFailure("provider_response_invalid") from exc
 
     async def plan(self, context):
         return await self._request(context, Plan,
@@ -101,9 +139,10 @@ class OpenAIConversationGateway:
             "If tools cannot answer the question, request clarification; never invent an answer.")
 
     async def compose(self, context):
-        return await self._request(context, EvidenceSelection,
-            "Select authorized evidence references in the most helpful order. Return every supplied reference exactly once. "
-            "Do not generate text, amounts, conclusions, citations, or references not supplied. The server renders verified evidence.")
+        return await self._request(context, GroundedExplanation,
+            "Explain the supplied deterministic evidence in simple language. Return every supplied reference exactly once. "
+            "The summary and limitations must contain no digits, currency values, percentages, rates, dates, invented facts, "
+            "product rankings, or buy/sell instructions. Refer users to the evidence cards for exact figures.")
 
     async def research(self, context):
         """Research a sanitized, non-calculation question and retain cited source metadata."""
@@ -116,6 +155,9 @@ class OpenAIConversationGateway:
             "include": ["web_search_call.action.sources"],
             "instructions": (
                 f"Policy {VERSION}. Answer the sanitized financial-education question in simple language after web search. "
+                "The product serves users in India. Interpret jurisdiction-neutral questions in the Indian context and "
+                "prefer primary Indian authorities such as the Income Tax Department, RBI, SEBI, IRDAI, PFRDA, and EPFO. "
+                "Use a non-Indian jurisdiction only when the user explicitly asks for it, and name that jurisdiction. "
                 "Prefer primary, official, regulator, government, issuer, or standards-body sources. "
                 "Every factual claim must be supported by a cited search source. Do not calculate, infer, or personalize. "
                 "Do not recommend, rank, shortlist, buy, or sell a financial product. Do not repeat private identifiers. "
@@ -190,3 +232,117 @@ class OpenAIConversationGateway:
         if not answer or not sources:
             raise WebResearchError("provider_citations_missing")
         return WebResearchResult(answer=answer, sources=sources)
+
+
+class OllamaConversationGateway:
+    """Local fallback through Ollama's fixed loopback endpoint."""
+
+    provider_name = "ollama"
+    supports_research = False
+
+    def __init__(self, model: str, timeout: float = 8):
+        self.model, self.timeout = model, timeout
+
+    async def _request(self, context: dict, output_type: type[BaseModel], instructions: str):
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "format": strict_schema(output_type.model_json_schema()),
+            "options": {"temperature": 0},
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": json.dumps(context, separators=(",", ":"))},
+            ],
+        }
+        if len(json.dumps(payload).encode()) > 24000:
+            raise ProviderFailure("provider_request_too_large")
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout, connect=1), trust_env=False) as client:
+                response = await client.post("http://127.0.0.1:11434/api/chat", json=payload)
+            if response.status_code >= 500:
+                raise ProviderFailure("provider_unavailable", transient=True)
+            if response.status_code >= 400:
+                raise ProviderFailure("provider_request_rejected")
+            content = response.json().get("message", {}).get("content", "")
+            return output_type.model_validate_json(content)
+        except ProviderFailure:
+            raise
+        except httpx.TimeoutException as exc:
+            raise ProviderFailure("provider_timeout", transient=True) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderFailure("provider_transport_error", transient=True) from exc
+        except Exception as exc:
+            raise ProviderFailure("provider_response_invalid") from exc
+
+    async def plan(self, context):
+        return await self._request(context, Plan,
+            f"Policy {VERSION}. Interpret the sanitized question into read-only calls from allowed_tools. "
+            "Never calculate, invent facts, request ownership identifiers, mutate data, or recommend products.")
+
+    async def compose(self, context):
+        return await self._request(context, GroundedExplanation,
+            "Explain deterministic evidence simply. Return every reference exactly once. Use no digits, amounts, "
+            "percentages, rates, dates, invented facts, rankings, or buy/sell instructions.")
+
+    async def research(self, context):
+        raise ProviderFailure("provider_capability_unavailable")
+
+
+class ResilientConversationGateway:
+    """Ordered providers with one transient retry and a small in-process circuit breaker."""
+
+    _circuits: dict[str, tuple[int, float]] = {}
+
+    def __init__(self, providers, *, retry_delay: float = 0, failure_threshold: int = 3, cooldown: float = 60):
+        self.providers = list(providers)
+        self.retry_delay, self.failure_threshold, self.cooldown = retry_delay, failure_threshold, cooldown
+        self.attempts = []
+        self.last_provider = None
+        self.last_model = None
+
+    async def _call(self, method, context):
+        last = None
+        for provider in self.providers:
+            key = f"{provider.provider_name}:{provider.model}"
+            failures, opened = self._circuits.get(key, (0, 0))
+            if failures >= self.failure_threshold and time.monotonic() - opened < self.cooldown:
+                self.attempts.append({"provider": provider.provider_name, "model": provider.model, "outcome": "circuit_open"})
+                continue
+            for attempt in range(2):
+                try:
+                    result = await getattr(provider, method)(context)
+                    self._circuits.pop(key, None)
+                    self.last_provider, self.last_model = provider.provider_name, provider.model
+                    self.attempts.append({"provider": provider.provider_name, "model": provider.model, "outcome": "success"})
+                    return result
+                except (ProviderFailure, WebResearchError) as exc:
+                    last = exc
+                    category = getattr(exc, "category", "provider_failure")
+                    transient = getattr(exc, "transient", category in {"provider_timeout", "provider_unavailable", "provider_transport_error", "provider_rate_limited"})
+                    self.attempts.append({"provider": provider.provider_name, "model": provider.model, "outcome": category})
+                    if transient and attempt == 0:
+                        if self.retry_delay:
+                            await asyncio.sleep(self.retry_delay)
+                        continue
+                    self._circuits[key] = (failures + 1, time.monotonic())
+                    break
+                except Exception as exc:
+                    last = ProviderFailure("provider_response_invalid")
+                    self.attempts.append({"provider": provider.provider_name, "model": provider.model, "outcome": "provider_response_invalid"})
+                    self._circuits[key] = (failures + 1, time.monotonic())
+                    break
+        raise last or ProviderFailure("provider_unavailable", transient=True)
+
+    async def plan(self, context):
+        return await self._call("plan", context)
+
+    async def compose(self, context):
+        return await self._call("compose", context)
+
+    async def research(self, context):
+        # Only a provider with cited web-search capability may satisfy research.
+        providers, self.providers = self.providers, [p for p in self.providers if getattr(p, "supports_research", False)]
+        try:
+            return await self._call("research", context)
+        finally:
+            self.providers = providers

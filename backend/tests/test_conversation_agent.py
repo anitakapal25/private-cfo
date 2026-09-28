@@ -4,7 +4,7 @@ from datetime import date
 from uuid import uuid4
 import pytest
 from pydantic import ValidationError
-from app.core.conversation_gateway import ScriptedConversationGateway
+from app.core.conversation_gateway import ProviderFailure, ResilientConversationGateway, ScriptedConversationGateway
 from app.core.conversation_gateway import WebResearchError
 from app.services.conversation_agent import ConversationAgent, local_plan, requested_period
 from app.services.conversation_contracts import ConversationState, ToolEvidence, ToolRequest, Plan
@@ -60,6 +60,63 @@ def test_scripted_model_understands_paraphrase():
     agent, _, _, used = run("Is there money remaining after my bills?", gateway=gateway)
     assert used and agent.executor.calls[0][0].name == "calculate_monthly_surplus"
     assert gateway.requests[0]["question"] == "Is there money remaining after my bills?"
+
+
+def test_grounded_model_explanation_is_used_without_repeating_figures():
+    gateway = ScriptedConversationGateway(
+        [{"calls": [{"name": "calculate_net_worth"}]}],
+        {"summary": "Your verified records are incomplete, so confirm the missing details before relying on this result.",
+         "references": ["e0"], "limitations": []},
+    )
+    agent, answer, _, used = run("What is my net worth?", gateway=gateway)
+    assert used
+    assert answer.narrative.startswith("Your verified records")
+    assert gateway.requests[-1]["evidence"][0]["verified_narrative"] == "Please confirm the missing facts."
+
+
+def test_numeric_model_explanation_is_rejected():
+    gateway = ScriptedConversationGateway(
+        [{"calls": [{"name": "calculate_net_worth"}]}],
+        {"summary": "Your net worth is 999999.", "references": ["e0"], "limitations": []},
+    )
+    agent, answer, _, _ = run("What is my net worth?", gateway=gateway)
+    assert agent.metrics["validation_rejections"]
+    assert "999999" not in answer.narrative
+
+
+def test_resilient_gateway_uses_second_provider_after_transient_failure():
+    class Provider:
+        def __init__(self, name, result=None):
+            self.provider_name, self.model, self.result = name, f"{name}-model", result
+        async def plan(self, context):
+            if isinstance(self.result, Exception):
+                raise self.result
+            return Plan.model_validate(self.result)
+    gateway = ResilientConversationGateway([
+        Provider("cloud", ProviderFailure("provider_timeout", transient=True)),
+        Provider("ollama", {"calls": [{"name": "calculate_net_worth"}]}),
+    ])
+    result = asyncio.run(gateway.plan({"question": "net worth"}))
+    assert result.calls[0].name == "calculate_net_worth"
+    assert gateway.last_provider == "ollama"
+    assert [attempt["provider"] for attempt in gateway.attempts] == ["cloud", "cloud", "ollama"]
+
+
+def test_ollama_gateway_is_loopback_structured_and_non_streaming(monkeypatch):
+    import httpx
+    from app.core.conversation_gateway import OllamaConversationGateway
+    requests = []
+    def respond(request):
+        import json
+        requests.append((str(request.url), json.loads(request.content)))
+        return httpx.Response(200, json={"message": {"content": '{"calls":[],"clarification":"topic","continue_planning":false}'}})
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: real(transport=httpx.MockTransport(respond), **kwargs))
+    result = asyncio.run(OllamaConversationGateway("local-model").plan({"question": "help"}))
+    assert result.clarification == "topic"
+    assert requests[0][0] == "http://127.0.0.1:11434/api/chat"
+    assert requests[0][1]["stream"] is False
+    assert requests[0][1]["options"]["temperature"] == 0
 
 @pytest.mark.parametrize("call", [{"name": "execute_sql"}, {"name": "calculate_net_worth", "arguments": {"user_id": "other"}}, {"name": "calculate_net_worth", "arguments": {"period_start": "2026-07-15"}}, {"name": "calculate_net_worth", "arguments": {"amount": "123"}}])
 def test_invalid_model_tools_fall_back_before_execution(call):
@@ -226,6 +283,8 @@ def test_live_gateway_web_research_requires_and_returns_https_citations(monkeypa
     assert requests[0]["store"] is False
     assert requests[0]["tools"] == [{"type": "web_search"}]
     assert requests[0]["include"] == ["web_search_call.action.sources"]
+    assert "users in India" in requests[0]["instructions"]
+    assert "Income Tax Department" in requests[0]["instructions"]
 
 
 def test_live_gateway_classifies_rate_limit_without_logging_provider_body(monkeypatch):

@@ -10,9 +10,9 @@ from app.guardrails.agent_input import evaluate_agent_input
 from app.guardrails.data_redaction import sanitize_question
 from app.guardrails.regulatory_language import evaluate_financial_request, Decision, PRODUCT_SELECTION_RESPONSE
 from app.services.agent_orchestrator import AgentAnswer, AgentOrchestrator, Intent
-from app.services.conversation_contracts import ConversationState, Plan, ToolRequest, ToolArguments, EvidenceSelection
+from app.services.conversation_contracts import ConversationState, Plan, ToolRequest, ToolArguments, GroundedExplanation
 from app.services.conversation_tools import HANDLERS
-from app.core.conversation_gateway import WebResearchError
+from app.core.conversation_gateway import ProviderFailure, WebResearchError
 
 OVERVIEW = ["calculate_net_worth", "calculate_monthly_surplus", "calculate_emergency_fund_coverage", "calculate_debt_metrics", "get_goal_progress"]
 TOPIC_WORDS = {"budgeting": ("budget", "income", "spending", "cash flow", "saving"), "debt": ("debt", "loan", "emi", "borrow"), "emergency_fund": ("emergency", "reserve"), "investing": ("invest", "fund", "stock", "diversif", "compound", "inflation"), "insurance": ("insurance", "coverage", "policy"), "retirement": ("retire", "pension", "epf", "nps", "freedom"), "tax": ("tax", "itr", "tds")}
@@ -75,11 +75,28 @@ def model_evidence(results):
     return [{"reference": r.reference, "tool": r.tool_name, "status": r.status,
              "missing": [field for b in r.blocks if b["type"] == "missing_data" for field in b.get("fields", [])]} for r in results]
 
+
+def explanation_evidence(results):
+    return [{"reference": r.reference, "tool": r.tool_name, "status": r.status,
+             "verified_narrative": r.narrative,
+             "limitations": [item for block in r.blocks for item in block.get("limitations", [])]}
+            for r in results]
+
+
+def validate_grounded_explanation(draft, references):
+    if len(draft.references) != len(references) or set(draft.references) != set(references):
+        raise ValueError("Unknown or missing evidence references")
+    text = " ".join([draft.summary, *draft.limitations])
+    if re.search(r"\d|[₹$€£%]", text):
+        raise ValueError("Model explanation repeated or invented a financial figure")
+    if evaluate_financial_request(text).decision == Decision.BLOCK:
+        raise ValueError("Model explanation crossed the regulated-language boundary")
+
 class ConversationAgent:
     def __init__(self, executor, gateway=None, *, max_rounds=2, max_tools=8, timeout=30):
         self.executor, self.gateway = executor, gateway
         self.max_rounds, self.max_tools, self.timeout = min(max_rounds, 2), min(max_tools, 8), min(timeout, 30)
-        self.metrics = {"planner_calls": 0, "tool_calls": 0, "web_search_calls": 0, "web_sources": [], "web_failure_category": None, "fallback": False, "validation_rejections": 0, "source_hits": 0, "tool_failures": 0}
+        self.metrics = {"planner_calls": 0, "tool_calls": 0, "web_search_calls": 0, "web_sources": [], "web_failure_category": None, "fallback": False, "validation_rejections": 0, "source_hits": 0, "tool_failures": 0, "provider_attempts": [], "model_provider": None, "model_name": None}
 
     async def answer(self, question, state=None, *, disconnected=None, today=None):
         started = time.monotonic()
@@ -118,9 +135,9 @@ class ConversationAgent:
         results, seen = [], set()
         plan = fallback
         used = False
+        model_summary = None
         active = self.gateway
-        calculation_requested = any(call.name in HANDLERS for call in fallback.calls)
-        if active and (asks_for_current_information or public_only or not calculation_requested):
+        if active and (asks_for_current_information or public_only or education_question):
             try:
                 self.metrics["web_search_calls"] += 1
                 research = await asyncio.wait_for(
@@ -132,6 +149,9 @@ class ConversationAgent:
                 sources = [source.model_dump() for source in research.sources]
                 self.metrics["web_sources"] = sources
                 self.metrics["source_hits"] = len(sources)
+                self.metrics["provider_attempts"] = getattr(active, "attempts", [])
+                self.metrics["model_provider"] = getattr(active, "last_provider", getattr(active, "provider_name", None))
+                self.metrics["model_name"] = getattr(active, "last_model", getattr(active, "model", None))
                 self.metrics["latency_ms"] = int((time.monotonic() - started) * 1000)
                 return AgentAnswer(
                     Intent.GENERAL_EDUCATION,
@@ -141,6 +161,9 @@ class ConversationAgent:
                     policy_decision="block" if public_only else "allow",
                 ), ConversationState(), True
             except WebResearchError as exc:
+                self.metrics["web_failure_category"] = exc.category
+                self.metrics["fallback"] = True
+            except ProviderFailure as exc:
                 self.metrics["web_failure_category"] = exc.category
                 self.metrics["fallback"] = True
             except Exception:
@@ -213,12 +236,13 @@ class ConversationAgent:
             await checkpoint()
             if active and results:
                 try:
-                    draft = EvidenceSelection.model_validate(await asyncio.wait_for(active.compose({"evidence": model_evidence(results)}), max(0.01, self.timeout - (time.monotonic() - started))))
+                    draft = GroundedExplanation.model_validate(await asyncio.wait_for(active.compose({"evidence": explanation_evidence(results)}), max(0.01, self.timeout - (time.monotonic() - started))))
                     refs = [r.reference for r in results]
-                    if len(draft.references) != len(refs) or set(draft.references) != set(refs):
-                        raise ValueError("Unknown or missing evidence references")
+                    validate_grounded_explanation(draft, refs)
                     by_ref = {r.reference: r for r in results}
                     results = [by_ref[ref] for ref in draft.references]
+                    model_summary = draft.summary
+                    used = True
                 except Exception:
                     self.metrics["fallback"] = True
                     self.metrics["validation_rejections"] += 1
@@ -226,6 +250,8 @@ class ConversationAgent:
             self.metrics["fallback"] = True
         blocks = [b for r in results for b in r.blocks]
         narrative = "\n\n".join(r.narrative for r in results)
+        if model_summary:
+            narrative = model_summary
         if public_only and not education_question:
             narrative = PRODUCT_SELECTION_RESPONSE
         pending = "verified_facts" if any(r.status == "missing" for r in results) else plan.clarification
@@ -241,6 +267,10 @@ class ConversationAgent:
         topic = next((c.arguments.topic for c, _ in self.executor.calls if c.arguments.topic), None)
         new_state = ConversationState(tools=tools, period_start=period, topic=topic, pending=pending, evidence_references=[r.reference for r in results])
         self.metrics["latency_ms"] = int((time.monotonic() - started) * 1000)
+        if active is not None:
+            self.metrics["provider_attempts"] = getattr(active, "attempts", [])
+            self.metrics["model_provider"] = getattr(active, "last_provider", getattr(active, "provider_name", None))
+            self.metrics["model_name"] = getattr(active, "last_model", getattr(active, "model", None))
         intent = Intent.FINANCIAL_OVERVIEW if len([t for t in tools if t != "lookup_finance_topic"]) > 1 else Intent(HANDLERS[tools[0]].intent) if tools and tools[0] in HANDLERS else Intent.GENERAL_EDUCATION
         return AgentAnswer(intent, narrative, blocks, policy_decision="block" if public_only else "allow"), new_state, used
 

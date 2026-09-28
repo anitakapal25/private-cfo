@@ -42,6 +42,9 @@ export interface AgentMessage {
   content: string;
   blocks: AgentBlock[];
   model_used?: boolean;
+  model_provider?: string | null;
+  model_name?: string | null;
+  fallback_used?: boolean;
   created_at: string;
 }
 
