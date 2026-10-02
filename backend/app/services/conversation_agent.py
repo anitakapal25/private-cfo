@@ -194,6 +194,14 @@ class ConversationAgent:
                                     raise ValueError("Invalid public arguments")
                             elif proposed.arguments.topic is not None:
                                 raise ValueError("Invalid financial arguments")
+                        # A planner does not know whether the user's records are complete.
+                        # Run locally recognized calculators to discover exact missing fields,
+                        # even when the model returns only a generic clarification.
+                        if not results and not plan.calls and fallback.calls and plan.clarification != "period":
+                            required = [call for call in fallback.calls if call.name in HANDLERS]
+                            plan.calls = required[:self.max_tools]
+                            if required:
+                                plan.clarification = None
                         used = True
                     except Exception:
                         self.metrics["fallback"] = True
@@ -254,13 +262,18 @@ class ConversationAgent:
             narrative = model_summary
         if public_only and not education_question:
             narrative = PRODUCT_SELECTION_RESPONSE
-        pending = "verified_facts" if any(r.status == "missing" for r in results) else plan.clarification
-        if pending:
+        missing_blocks = [b for b in blocks if b["type"] == "missing_data" and b.get("fields")]
+        # Keep tool-authored follow-up instructions authoritative; model prose must
+        # not replace a concrete request with a vague "update your memory" message.
+        if missing_blocks and all(r.status == "missing" for r in results):
+            narrative = "\n\n".join(dict.fromkeys(r.narrative for r in results))
+        pending = "verified_facts" if missing_blocks else plan.clarification
+        if pending and not missing_blocks:
             blocks.append({"type": "clarification", "code": pending, "content": CLARIFICATIONS[pending]})
         if not results:
             narrative = PRODUCT_SELECTION_RESPONSE if public_only else CLARIFICATIONS[pending or "topic"]
             blocks.append({"type": "unsupported_coverage", "code": "NO_VERIFIED_RESULT", "content": "I do not have a verified result for this request. You can ask about confirmed finances or the supported education topics."})
-        if any(r.status != "complete" for r in results) or self.metrics["tool_failures"]:
+        if any(r.status == "unavailable" for r in results) or self.metrics["tool_failures"] or (missing_blocks and any(r.status == "complete" for r in results)):
             blocks.append({"type": "unsupported_coverage", "code": "PARTIAL_RESULTS", "content": "Available evidence is shown; some parts could not be completed."})
         tools = list(dict.fromkeys(r.tool_name for r in results))
         period = next((c.arguments.period_start for c, _ in self.executor.calls if c.arguments.period_start), None)

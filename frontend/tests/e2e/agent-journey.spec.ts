@@ -237,6 +237,76 @@ async function signIn(page: Page) {
   await expect(page.getByRole('heading', { name: 'Financial Freedom Agent' })).toBeVisible();
 }
 
+for (const expired of [false, true]) {
+  test(`financial freedom asks for exact inputs and continues the original question (${expired ? 'expired assumptions' : 'result'})`, async ({ page }, testInfo) => {
+    await mockAuthenticatedShell(page);
+    const requests: Record<string, unknown>[] = [];
+    const question = 'how can i achieve financial freedom in 10 years?';
+    await page.route('**/api/v1/agent/conversations/*/messages', route => {
+      const payload = route.request().postDataJSON() as Record<string, unknown>;
+      requests.push(payload);
+      if (!payload.freedom_scenario) return route.fulfill({ json: {
+        message_id: 'missing-freedom', role: 'assistant', content: 'Please enter and confirm the required values below.',
+        created_at: '2026-10-02T00:00:00Z', model_used: false,
+        blocks: [{ type: 'missing_data', fields: ['current age', 'target age', 'current monthly lifestyle expenses', 'current investable corpus', 'monthly contribution'] }],
+      } });
+      if (expired) return route.fulfill({ status: 503, json: { detail: 'This projection is temporarily unavailable because its planning assumptions have expired and need review. Your entered values remain in the form; you do not need to add more financial details.' } });
+      return route.fulfill({ json: {
+        message_id: 'freedom-result', role: 'assistant', content: 'Your confirmed scenario has been calculated.',
+        created_at: '2026-10-02T00:00:00Z', model_used: false,
+        blocks: [{ type: 'calculation', calculation_id: 'synthetic-projection', version: 'freedom-projection-v1', timestamp: '2026-10-02T00:00:00Z', assumptions: { source: 'synthetic_browser_fixture' },
+          result: { target_age: 44, projected_corpus: { amount: '1000000.00' }, required_corpus: { amount: '2000000.00' }, freedom_gap: { amount: '1000000.00' }, scenario_status: 'shortfall' } }],
+      } });
+    });
+    await signIn(page);
+    await page.getByRole('button', { name: 'Ask Artha', exact: true }).click();
+    await page.getByLabel('Ask about your finances').fill(question);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const form = page.locator('.chat-followup-card');
+    await expect(form.getByRole('spinbutton')).toHaveCount(5);
+    await expect(page.getByText('I do not have a verified result', { exact: false })).toHaveCount(0);
+    await expect(form.getByRole('button', { name: 'Continue my question' })).toBeDisabled();
+    await form.getByRole('spinbutton', { name: /Your current age/ }).fill('34');
+    await form.getByRole('spinbutton', { name: /Age you want to plan for/ }).fill('44');
+    await form.getByRole('spinbutton', { name: /Monthly living expenses/ }).fill('45000');
+    await form.getByRole('spinbutton', { name: /Savings and investments for this goal/ }).fill('0');
+    await form.getByRole('spinbutton', { name: /Amount you plan to add each month/ }).fill('15000');
+    await page.screenshot({ path: testInfo.outputPath('required-fields.png'), fullPage: true });
+    await form.getByLabel('I confirm these personal values are correct for this projection.').check();
+    await form.getByRole('button', { name: 'Continue my question' }).click();
+    await expect.poll(() => requests.length).toBe(2);
+    expect(requests[1].content).toBe(question);
+    expect(requests[1].client_request_id).not.toBe(requests[0].client_request_id);
+    expect(requests[1].freedom_scenario).toEqual({ current_age: 34, target_age: 44, current_monthly_lifestyle_expenses: '45000', current_investable_corpus: '0', monthly_contribution: '15000' });
+    if (expired) {
+      await expect(page.getByRole('alert')).toContainText('planning assumptions have expired');
+      await expect(form.getByRole('spinbutton', { name: /Monthly living expenses/ })).toHaveValue('45000');
+      await expect(page.getByText('Your confirmed scenario has been calculated.')).toHaveCount(0);
+    } else {
+      await expect(page.getByText('Not yet on track for age 44')).toBeVisible();
+      await expect(form).toHaveCount(0);
+    }
+  });
+}
+
+test('missing memory fields open the requested entry and preserve the question', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.route('**/api/v1/agent/conversations/*/messages', route => route.fulfill({ json: {
+    message_id: 'missing-cash-flow', role: 'assistant', content: 'Please confirm your monthly expenses.',
+    created_at: '2026-10-02T00:00:00Z', blocks: [{ type: 'missing_data', fields: ['monthly_expenses'], period_start: '2026-09-01' }],
+  } }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'Ask Artha', exact: true }).click();
+  await page.getByLabel('Ask about your finances').fill('Show my cash flow for September 2026');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByText('Required period: 2026-09-01')).toBeVisible();
+  await page.getByRole('button', { name: 'Add or confirm Monthly expenses' }).click();
+  await expect(page.locator('#memory-monthly_expenses')).toBeVisible();
+  await expect(page.getByLabel('Choose month')).toHaveValue('2026-09');
+  await page.getByRole('button', { name: 'Return to my question' }).click();
+  await expect(page.getByLabel('Ask about your finances')).toHaveValue('Show my cash flow for September 2026');
+});
+
 test('user can cancel and safely retry the same idempotent agent request', async ({ page }) => {
   await mockAuthenticatedShell(page);
   const requestIds: string[] = [];

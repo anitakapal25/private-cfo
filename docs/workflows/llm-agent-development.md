@@ -14,6 +14,13 @@ tool requests. The server validates and executes requests. Model composition may
 a short number-free explanation grounded in deterministic evidence and must return
 every evidence reference exactly once. Exact figures remain server-rendered.
 
+For recognized calculation questions, an empty model plan cannot substitute a generic
+missing-facts message for a tool call. The local calculator discovers the exact required
+fields. Tool-authored missing-data instructions stay authoritative, without duplicate
+generic clarification or unsupported-result notices. Ask Artha opens the scenario form
+for financial-freedom inputs; its confirmation button resubmits the original question
+with the confirmed values. Missing Financial Memory fields link to their entry cards.
+
 For non-calculation financial-education questions, the configured provider performs a
 web search using only the sanitized question. The answer must cite HTTPS sources and
 must not contain model-generated calculations, financial figures, personalized advice,

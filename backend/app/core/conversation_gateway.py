@@ -136,6 +136,8 @@ class OpenAIConversationGateway:
             "Calendar month arguments must be first-of-month dates. Do not call a completed tool again. "
             "No SQL, ownership arguments, writes, product picks or financial arithmetic. "
             "Ask topic/period clarification when ambiguous. Unverified values require existing forms. "
+            "For a recognized calculation, call its tool even if inputs may be missing: the tool returns "
+            "the exact required fields. Do not replace a calculator call with verified_facts clarification. "
             "If tools cannot answer the question, request clarification; never invent an answer.")
 
     async def compose(self, context):
@@ -277,6 +279,7 @@ class OllamaConversationGateway:
     async def plan(self, context):
         return await self._request(context, Plan,
             f"Policy {VERSION}. Interpret the sanitized question into read-only calls from allowed_tools. "
+            "Call the relevant calculator even if inputs may be missing; it identifies the exact required fields. "
             "Never calculate, invent facts, request ownership identifiers, mutate data, or recommend products.")
 
     async def compose(self, context):
