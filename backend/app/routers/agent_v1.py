@@ -928,7 +928,7 @@ async def send_message(
             try:
                 inputs, metadata = resolve_freedom_scenario(payload.freedom_scenario)
             except StaleAssumptionError:
-                raise HTTPException(503, "Planning assumptions need review") from None
+                raise HTTPException(503, "This projection is temporarily unavailable because its planning assumptions have expired and need review. Your entered values remain in the form; you do not need to add more financial details.") from None
         return await process_conversation(db, current_user.user_id, conversation, payload, settings, request.is_disconnected, freedom_inputs=inputs, assumption_metadata=metadata)
     if payload.client_request_id is not None:
         prior = db.query(ConversationMessage).filter(

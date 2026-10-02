@@ -10,6 +10,7 @@ import FinancialMemory from './FinancialMemory';
 import DocumentsPage from './documents/DocumentsPage';
 import PlansPage from './plans/PlansPage';
 import MfaSetup, { type MfaEnrollment } from './MfaSetup';
+import { allMemoryFields } from './memory/model';
 
 const emptyScenario = {
   current_age: '', target_age: '', current_monthly_lifestyle_expenses: '',
@@ -80,9 +81,9 @@ function CalculationSummary({ result }: { result?: Record<string, unknown> }) {
   return <div className="friendly-calculation"><strong>Your calculation</strong><dl>{displayItems.map(([key, value]) => <div key={key}><dt>{key.replace(/_/g, ' ')}</dt><dd>{isMoneyResult(value) ? formatInr(value.amount) : String(value)}</dd></div>)}</dl></div>;
 }
 
-function Evidence({ block }: { block: AgentBlock }) {
+function Evidence({ block, onAddField }: { block: AgentBlock; onAddField?: (field: string, period?: string) => void }) {
   if (block.type === 'missing_data') {
-    return <div className="evidence missing-information"><strong>I need a little more information</strong><p>Please provide or confirm the following so I can answer without guessing:</p><ul>{block.fields?.map(field => <li key={field}>{friendlyFieldLabels[field] || field}</li>)}</ul></div>;
+    return <div className="evidence missing-information"><strong>I need a little more information</strong><p>Please provide or confirm the following so I can calculate your result:</p>{block.period_start && <p>Required period: {block.period_start}</p>}<ul>{block.fields?.map(field => <li key={field}>{friendlyFieldLabels[field] || field}{onAddField && allMemoryFields.some(item => item.type === field) && <> <button type="button" className="inline-link" onClick={() => onAddField(field, block.period_start)}>Add or confirm {friendlyFieldLabels[field] || field}</button></>}</li>)}</ul></div>;
   }
   if (block.type === 'clarification') return <section className="evidence missing-information" aria-label="Clarification"><strong>A little more context</strong><p>{block.content}</p></section>;
   if (block.type === 'unsupported_coverage') return <section className="evidence" aria-label="Available coverage"><p>{block.content}</p></section>;
@@ -135,6 +136,7 @@ const AgentPage: React.FC = () => {
   const [coverageTarget, setCoverageTarget] = useState('');
   const [facts, setFacts] = useState<FinancialFact[]>([]);
   const [factType, setFactType] = useState<string>();
+  const [factPeriod, setFactPeriod] = useState<string>();
   const [reviews, setReviews] = useState<ProactiveReview[]>([]);
   const [documentType, setDocumentType] = useState('salary_slip');
   const [localSelection, setLocalSelection] = useState<LocalDocumentSelection>();
@@ -349,9 +351,8 @@ const AgentPage: React.FC = () => {
     finally { setPending(false); }
   };
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    const content = draft.trim();
+  const sendQuestion = async (question: string) => {
+    const content = question.trim();
     if (!content || pending) return;
     setDraft(''); setError(''); setPending(true); setChatPending(true);
     setMessages(current => [...current, { message_id: crypto.randomUUID(), role: 'user', content, blocks: [], created_at: new Date().toISOString() }]);
@@ -378,7 +379,7 @@ const AgentPage: React.FC = () => {
       const needsCoverage = missingFields.includes('explicit user-selected coverage target');
       setShowScenario(needsScenario);
       setCoverageRequested(needsCoverage);
-      if (needsScenario || needsCoverage) setFollowUpQuestion(content);
+      setFollowUpQuestion(missingFields.length ? content : '');
       setRetryableMessage(undefined);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === 'AbortError') {
@@ -387,6 +388,11 @@ const AgentPage: React.FC = () => {
         reportError(reason, 'The agent could not respond.');
       }
     } finally { requestController.current = undefined; setPending(false); setChatPending(false); }
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void sendQuestion(draft);
   };
 
   const retryMessage = async () => {
@@ -406,7 +412,7 @@ const AgentPage: React.FC = () => {
       const needsCoverage = missingFields.includes('explicit user-selected coverage target');
       setShowScenario(needsScenario);
       setCoverageRequested(needsCoverage);
-      if (needsScenario || needsCoverage) setFollowUpQuestion(retryableMessage.content);
+      setFollowUpQuestion(missingFields.length ? retryableMessage.content : '');
       setRetryableMessage(undefined);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === 'AbortError') {
@@ -430,11 +436,10 @@ const AgentPage: React.FC = () => {
     { id: 'documents', label: 'Documents', icon: <FolderLock/> }, { id: 'reviews', label: 'Reviews', icon: <Sparkles/> },
   ];
   const selectSection = (section: WorkspaceSection) => { setActiveSection(section); setMobileNavOpen(false); setError(''); setStatusMessage(''); };
-  const openFactEntry = (type: string) => { setFactType(type); selectSection('memory'); };
+  const openFactEntry = (type: string, period?: string) => { setFactType(type); setFactPeriod(period); selectSection('memory'); };
   const openAsk = (prompt?: string) => { if (prompt) setDraft(prompt); selectSection('ask'); };
   const continueFollowUp = () => {
-    setDraft(followUpQuestion);
-    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('#agent-message')?.focus());
+    void sendQuestion(followUpQuestion);
   };
 
   return (
@@ -455,18 +460,18 @@ const AgentPage: React.FC = () => {
       {activeSection === 'documents' && <DocumentsPage desktopHost={desktopHost} capabilities={localCapabilities} selection={localSelection} documentType={documentType} documents={sessionDocuments} facts={facts} pending={pending} onChoose={() => void chooseLocalDocument()} onDiscard={() => void discardLocalSelection()} onProcess={() => void processSelectedDocument()} onDocumentTypeChange={setDocumentType} onCandidateDecision={(candidate, decision) => void decideLocalCandidate(candidate, decision)} onAskArtha={openAsk}/>
       }
       {activeSection === 'reviews' && <><header className="section-page-heading"><Sparkles aria-hidden="true"/><div><p className="eyebrow">FINANCIAL CHECKS</p><h2>Reviews</h2></div></header><section className="boundary">Reviews are deterministic notifications. They never change your records or plan.</section><details className="scenario-card" open><summary>Proactive financial reviews ({reviews.filter(review => review.status === 'open').length} open)</summary><Button type="button" disabled={pending} onClick={refreshReviews}>Run review now</Button>{reviews.length === 0 ? <p>No review findings.</p> : <ul className="fact-list">{reviews.map(review => <li key={review.review_id}><span>{review.finding_type.replace(/_/g, ' ')}</span><small>{review.severity} · {review.status} · {review.rule_version}</small><details><summary>Evidence</summary><pre>{JSON.stringify(review.evidence, null, 2)}</pre></details>{review.status === 'open' && <div className="fact-actions"><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'acknowledge')}>Acknowledge</button><button type="button" disabled={pending} onClick={() => decideReview(review.review_id, 'dismiss')}>Dismiss</button></div>}</li>)}</ul>}</details></>}
-      {activeSection === 'memory' && <FinancialMemory token={token} facts={facts} documents={sessionDocuments} initialField={factType} onFactsChanged={async () => setFacts(await listFinancialFacts(token))} onAsk={openAsk} onOpenDocuments={() => selectSection('documents')}/>
+      {activeSection === 'memory' && <>{followUpQuestion && <section className="evidence"><p>After confirming the requested values, return to your question to calculate the result.</p><Button type="button" onClick={() => openAsk(followUpQuestion)}>Return to my question</Button></section>}<FinancialMemory token={token} facts={facts} documents={sessionDocuments} initialField={factType} initialPeriod={factPeriod} onFactsChanged={async () => setFacts(await listFinancialFacts(token))} onAsk={openAsk} onOpenDocuments={() => selectSection('documents')}/></>
       }
       {activeSection === 'plans' && <PlansPage token={token} conversationId={conversationId} onConversationCreated={setConversationId} onAsk={openAsk}/>
       }
       {activeSection === 'ask' && <><header className="section-page-heading"><MessageSquareText aria-hidden="true"/><div><p className="eyebrow">ASK ARTHA</p><h2>Talk about your finances</h2></div></header><section className="boundary">Ask in your own words. Artha uses information you confirmed and will ask when something important is missing.</section><section className="quick-prompts" aria-label="Planning questions"><button type="button" onClick={() => setDraft('Show my debt and EMI metrics')}><Landmark aria-hidden="true"/>Debt metrics</button><button type="button" onClick={() => setDraft('Show my 12-month cash flow forecast')}><WalletCards aria-hidden="true"/>Cash-flow forecast</button><button type="button" onClick={() => setDraft('Show my goal progress')}><Target aria-hidden="true"/>Goal progress</button><button type="button" onClick={() => setDraft('Help me prepare a budgeting action for My Plan')}><Sparkles aria-hidden="true"/>Prepare an action</button></section>
       <section className="conversation" aria-live="polite">
-        {messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><span className="message-role">{message.role === 'assistant' ? 'Private CFO' : 'You'}</span><p>{message.content}</p>{message.role === 'assistant' && message.model_used && <small>{message.model_provider === 'ollama' ? 'Local AI explanation' : 'AI-assisted explanation'}{message.fallback_used ? ' · fallback used' : ''}</small>}{message.blocks.map((block, index) => <Evidence key={`${message.message_id}-${index}`} block={block}/>)}</article>)}
+        {messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><span className="message-role">{message.role === 'assistant' ? 'Private CFO' : 'You'}</span><p>{message.content}</p>{message.role === 'assistant' && message.model_used && <small>{message.model_provider === 'ollama' ? 'Local AI assistance' : 'AI-assisted response'}{message.fallback_used ? ' · fallback used' : ''}</small>}{message.blocks.map((block, index) => <Evidence key={`${message.message_id}-${index}`} block={block} onAddField={openFactEntry}/>)}</article>)}
         {pending && <article className="message assistant"><span className="message-role">Private CFO</span><p>Reviewing your verified financial context…</p></article>}
       </section>
       {showScenario && <section className="scenario-card chat-followup-card" aria-labelledby="scenario-title"><p className="eyebrow">ARTHA NEEDS THESE DETAILS</p><h2 id="scenario-title">Tell me about the future you want to plan for</h2><p>Provide only your personal details. Artha will use current reviewed planning assumptions for inflation, expected return, and withdrawals.</p><div className="scenario-grid">
-        {scenarioFields.map(field => <label key={field.key}><span className="scenario-label">{field.label}<InfoTooltip term={field.label} explanation={field.explanation} example={field.example}/></span><input required type="number" step="any" value={scenario[field.key]} onChange={event => { setScenario(current => ({ ...current, [field.key]: event.target.value })); setScenarioConfirmed(false); }}/></label>)}
-      </div><label className="scenario-confirm"><input type="checkbox" checked={scenarioConfirmed} onChange={event => setScenarioConfirmed(event.target.checked)}/> I confirm these personal values are correct for this projection.</label><Button type="button" disabled={!scenarioConfirmed || Object.values(scenario).some(value => value.trim() === '')} onClick={continueFollowUp}>Continue my question</Button></section>}
+        {scenarioFields.map(field => <label key={field.key} htmlFor={`scenario-${field.key}`}><span className="scenario-label">{field.label}<InfoTooltip term={field.label} explanation={field.explanation} example={field.example}/></span><input id={`scenario-${field.key}`} required type="number" step="any" value={scenario[field.key]} onChange={event => { setScenario(current => ({ ...current, [field.key]: event.target.value })); setScenarioConfirmed(false); }}/></label>)}
+      </div><label className="scenario-confirm"><input type="checkbox" checked={scenarioConfirmed} onChange={event => setScenarioConfirmed(event.target.checked)}/> I confirm these personal values are correct for this projection.</label><Button type="button" disabled={pending || !scenarioConfirmed || Object.values(scenario).some(value => value.trim() === '')} onClick={continueFollowUp}>Continue my question</Button></section>}
       {coverageRequested && <section className="scenario-card chat-followup-card" aria-labelledby="coverage-title"><p className="eyebrow">ARTHA NEEDS ONE DETAIL</p><h2 id="coverage-title">What insurance cover amount do you want to compare?</h2><p>Choose the comparison amount yourself. Artha will not recommend a policy or decide the amount for you.</p><label><span className="scenario-label">Amount to compare (₹)<InfoTooltip term="insurance comparison amount" explanation="The cover amount you want compared with your currently confirmed insurance cover." example="Compare your current cover with ₹1,00,00,000."/></span><input type="number" min="0" step="0.01" value={coverageTarget} onChange={event => setCoverageTarget(event.target.value)}/></label><Button type="button" disabled={!coverageTarget} onClick={continueFollowUp}>Continue my question</Button></section>}
       <form className="composer" onSubmit={submit}><label htmlFor="agent-message" className="sr-only">Ask about your finances</label><textarea id="agent-message" value={draft} onChange={event => setDraft(event.target.value)} placeholder="Ask about your finances…" maxLength={4000}/>{chatPending ? <Button type="button" onClick={() => requestController.current?.abort()}>Cancel</Button> : <Button className="send-button" aria-label="Send" disabled={pending}><Send/><span>Send</span></Button>}</form></>}
       <footer className="app-disclaimer"><ShieldCheck/> Planning guidance, not investment, tax, or insurance advice.</footer>

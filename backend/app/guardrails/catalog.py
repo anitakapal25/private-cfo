@@ -20,34 +20,34 @@ TAX_RULES_FY_2023_24 = VersionedAssumption(
 FINANCIAL_FREEDOM_INFLATION = VersionedAssumption(
     identifier="financial-freedom-inflation-baseline",
     value=Decimal("0.0600"),
-    version="2026-08-30",
-    effective_from=date(2026, 8, 30),
-    reviewed_at=date(2026, 8, 30),
-    review_by=date(2026, 9, 30),
-    source_url="https://www.rbi.org.in/commonperson/English/Scripts/speeches.aspx?Id=3161",
-    methodology="Conservative long-term planning baseline; inflation may differ from the RBI target and actual household inflation.",
+    version="2026-10-02",
+    effective_from=date(2026, 10, 2),
+    reviewed_at=date(2026, 10, 2),
+    review_by=date(2026, 12, 31),
+    source_url="https://egazette.gov.in/WriteReadData/2026/271285.pdf",
+    methodology="Illustrative conservative scenario using the upper 6% tolerance of India's 2026-31 inflation target; not an inflation forecast. Household inflation can differ.",
 )
 
 FINANCIAL_FREEDOM_RETURN = VersionedAssumption(
     identifier="financial-freedom-product-neutral-return-baseline",
     value=Decimal("0.0800"),
-    version="2026-08-30",
-    effective_from=date(2026, 8, 30),
-    reviewed_at=date(2026, 8, 30),
-    review_by=date(2026, 9, 30),
+    version="2026-10-02",
+    effective_from=date(2026, 10, 2),
+    reviewed_at=date(2026, 10, 2),
+    review_by=date(2026, 12, 31),
     source_url="https://investor.sebi.gov.in/calculators/Assets_Allocations.html",
-    methodology="Product-neutral illustration only; it is not a forecast, promise, or personalized portfolio return.",
+    methodology="Internal product-neutral illustrative input. SEBI's calculator permits user-entered expected returns but does not endorse 8%; this is not a forecast, promise, or personalized portfolio return.",
 )
 
 FINANCIAL_FREEDOM_WITHDRAWAL = VersionedAssumption(
     identifier="financial-freedom-withdrawal-baseline",
     value=Decimal("0.0350"),
-    version="2026-08-30",
-    effective_from=date(2026, 8, 30),
-    reviewed_at=date(2026, 8, 30),
-    review_by=date(2026, 9, 30),
-    source_url="https://www.pfrda.org.in/en/web/pfrda/home",
-    methodology="Conservative planning methodology, not a market rate or a recommendation for retirement withdrawals.",
+    version="2026-10-02",
+    effective_from=date(2026, 10, 2),
+    reviewed_at=date(2026, 10, 2),
+    review_by=date(2026, 12, 31),
+    source_url="https://www.pfrda.org.in/documents/33652/198397/Pension%2BSecurity%2Bin%2BIndia-Book.pdf",
+    methodology="Illustrative 3.5% withdrawal scenario informed by independent research hosted by PFRDA; not an official PFRDA rule, safe guarantee, or personalized recommendation.",
 )
 
 FINANCIAL_FREEDOM_ASSUMPTIONS = {

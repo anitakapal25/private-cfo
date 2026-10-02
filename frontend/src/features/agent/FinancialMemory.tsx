@@ -18,13 +18,14 @@ interface FinancialMemoryProps {
   facts: FinancialFact[];
   documents: SessionDocument[];
   initialField?: string;
+  initialPeriod?: string;
   onFactsChanged: () => Promise<void>;
   onAsk: (prompt: string) => void;
   onOpenDocuments: () => void;
 }
 
-const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, documents, initialField, onFactsChanged, onAsk, onOpenDocuments }) => {
-  const [month, setMonth] = useState(currentMonth());
+const FinancialMemory: React.FC<FinancialMemoryProps> = ({ token, facts, documents, initialField, initialPeriod, onFactsChanged, onAsk, onOpenDocuments }) => {
+  const [month, setMonth] = useState(() => initialField && initialPeriod ? initialPeriod.slice(0, 7) : currentMonth());
   const [asOfDate, setAsOfDate] = useState(today());
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<Set<string>>(() => initialField ? new Set([initialField]) : new Set());

@@ -363,8 +363,11 @@ class AgentOrchestrator:
             return AgentAnswer(
                 intent=Intent.FREEDOM_PLAN,
                 narrative=(
-                    "I can build your financial-freedom baseline after the scenario inputs below "
-                    "are explicitly confirmed. Reviewed planning assumptions are supplied by Artha."
+                    "I can check whether your financial-freedom goal is on track. Please enter and confirm "
+                    "your current age, target age, monthly living expenses, savings and investments set aside "
+                    "for this goal, and the amount you plan to add each month in the form below. "
+                    "Then I can calculate your projected savings, estimated amount needed, and any shortfall. "
+                    "Artha supplies reviewed planning assumptions."
                 ),
                 blocks=[{"type": "missing_data", "fields": [
                     "current age", "target age", "current monthly lifestyle expenses",

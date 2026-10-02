@@ -575,6 +575,9 @@ button:disabled { cursor:not-allowed; opacity:.55; }
 .section-ask .message.user { background:#eaf3ff; color:var(--color-text-primary); border:1px solid #bfdbfe; }
 .section-ask > .chat-followup-card { margin:.25rem 0 1rem; padding:1.25rem; border-color:#b9d4f5; box-shadow:0 5px 18px rgba(23,58,97,.07); }
 .chat-followup-card .btn { justify-self:start; }
+.chat-followup-card .scenario-confirm { display:flex; align-items:center; gap:.6rem; }
+.chat-followup-card .scenario-confirm input { width:auto; }
+.section-ask > .chat-followup-card ~ .composer { position:static; }
 .send-button { display:flex; align-items:center; gap:.4rem; border-radius:999px; }
 .send-button svg { width:18px; }
 .section-documents::before, .section-reviews::before, .section-plans::before { display:block; max-width:900px; margin:0 auto 1.25rem; color:var(--color-text-secondary); font-size:.9rem; }
