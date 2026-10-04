@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 from app.core.conversation_gateway import ProviderFailure, ResilientConversationGateway, ScriptedConversationGateway
 from app.core.conversation_gateway import WebResearchError
-from app.services.conversation_agent import ConversationAgent, local_plan, requested_period
+from app.services.conversation_agent import ConversationAgent, is_education_question, local_plan, requested_period
 from app.services.conversation_contracts import ConversationState, ToolEvidence, ToolRequest, Plan
 from app.services.conversation_tools import ConversationToolExecutor
 from app.services.finance_knowledge import CATALOGUE, lookup_topic
@@ -50,6 +50,39 @@ def test_followup_month_and_topic_switch():
     assert state.tools == ["calculate_net_worth"]
     assert state.period_start is None
 
+
+def test_added_fields_followup_rechecks_prior_calculation_and_clears_pending_state():
+    class NewlyConfirmedExecutor(SyntheticExecutor):
+        def execute(self, request, public_only=False):
+            result = ToolEvidence(reference="confirmed-net-worth", tool_name=request.name, status="complete",
+                                  narrative="Your confirmed net worth is shown below.",
+                                  blocks=[{"type": "calculation", "calculation_id": "synthetic"}])
+            self.calls.append((request, result))
+            return result
+
+    _, first, state, _ = run("What is my net worth?")
+    assert state.pending == "verified_facts"
+    assert first.blocks[0]["type"] == "missing_data"
+
+    executor = NewlyConfirmedExecutor()
+    gateway = ScriptedConversationGateway([{"calls": [], "clarification": "verified_facts"}])
+    _, answer, updated, _ = run("I have added both fields now answer", state=state, executor=executor, gateway=gateway)
+    assert [request.name for request, _ in executor.calls] == ["calculate_net_worth"]
+    assert answer.narrative == "Your confirmed net worth is shown below."
+    assert [block["type"] for block in answer.blocks] == ["calculation"]
+    assert updated.pending is None
+    assert gateway.requests[0]["allowed_tools"] == ["calculate_net_worth"]
+
+
+def test_pending_followup_keeps_requested_month_but_new_question_switches_tool():
+    _, _, state, _ = run("Show my cash flow for September 2026")
+    agent, _, _, _ = run("Done, please try again", state=state)
+    assert agent.executor.calls[0][0].name == "calculate_monthly_surplus"
+    assert agent.executor.calls[0][0].arguments.period_start == date(2026, 9, 1)
+
+    agent, _, _, _ = run("I added the values; show my debt metrics instead", state=state)
+    assert agent.executor.calls[0][0].name == "calculate_debt_metrics"
+
 @pytest.mark.parametrize("question, expected", [("last month", date(2025,12,1)), ("this month", date(2026,1,1)), ("2025-07", date(2025,7,1))])
 def test_period_resolution(question, expected):
     assert requested_period(question, ConversationState(), date(2026,1,1)) == expected
@@ -60,6 +93,33 @@ def test_scripted_model_understands_paraphrase():
     agent, _, _, used = run("Is there money remaining after my bills?", gateway=gateway)
     assert used and agent.executor.calls[0][0].name == "calculate_monthly_surplus"
     assert gateway.requests[0]["question"] == "Is there money remaining after my bills?"
+
+
+@pytest.mark.parametrize("question", [
+    "is total debt and loan balance are different? and how they are different explain?",
+    "What is the difference between total debt and loan balance?",
+    "How are total debt and loan balance different?",
+])
+def test_debt_comparison_uses_education_without_private_calculation(question):
+    assert is_education_question(question)
+    executor = ConversationToolExecutor(None, uuid4())
+    gateway = ScriptedConversationGateway(
+        [{"calls": [{"name": "calculate_debt_metrics"}]}],
+        research=WebResearchError("provider_unavailable"),
+    )
+    agent = ConversationAgent(executor, gateway)
+    answer, _, _ = asyncio.run(agent.answer(question, today=date(2026, 10, 2)))
+    assert [call.name for call, _ in executor.calls] == ["lookup_finance_topic"]
+    assert "loan balance" in answer.narrative.lower()
+    assert "total debt" in answer.narrative.lower()
+    assert all(block["type"] != "calculation" for block in answer.blocks)
+    assert agent.metrics["fallback"]
+
+
+@pytest.mark.parametrize("question", ["Show my debt metrics", "What is my debt balance?"])
+def test_personal_debt_requests_still_use_calculator(question):
+    assert not is_education_question(question)
+    assert [call.name for call in local_plan(question, ConversationState(), date(2026, 10, 2)).calls] == ["calculate_debt_metrics"]
 
 
 def test_missing_data_instructions_are_not_replaced_by_generic_model_explanation():
@@ -114,7 +174,8 @@ def test_model_period_clarification_does_not_trigger_unscoped_calculation():
     assert any(b.get("code") == "period" for b in answer.blocks)
 
 
-def test_confirmed_freedom_followup_calculates_even_with_empty_model_plan(monkeypatch):
+@pytest.mark.parametrize("model_calls", [[], [{"name": "calculate_financial_freedom_projection"}]])
+def test_confirmed_freedom_followup_ignores_stale_model_clarification(monkeypatch, model_calls):
     from datetime import datetime, timezone
     from decimal import Decimal
     from types import SimpleNamespace
@@ -133,7 +194,7 @@ def test_confirmed_freedom_followup_calculates_even_with_empty_model_plan(monkey
     executor = ConversationToolExecutor(None, uuid4(), freedom_inputs=inputs)
     _, answer, state, _ = run(
         "how can i achieve financial freedom in 10 years?", executor=executor,
-        gateway=ScriptedConversationGateway([{"clarification": "verified_facts"}]),
+        gateway=ScriptedConversationGateway([{"calls": model_calls, "clarification": "verified_facts"}]),
     )
     assert state.pending is None
     assert len(recorded) == 1 and recorded[0][0] == executor.user_id

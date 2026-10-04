@@ -29,6 +29,19 @@ CURRENT_INFORMATION_SUBJECTS = (
 )
 
 
+def is_education_question(question: str) -> bool:
+    """Keep concept questions out of personal calculators, even with noun keywords."""
+    if re.search(r"\b(?:my|mine|our|ours|i|we)\b", question, re.I):
+        return False
+    if re.search(r"\b(?:how much|show|calculate|metrics|outstanding amount)\b", question, re.I):
+        return False
+    return bool(
+        re.match(r"\s*(?:what (?:is|are|does)|explain|define|tell me about|how does|why\b)", question, re.I)
+        or re.search(r"\b(?:difference between|different from|different things|how (?:are|do|is|does)\b.{0,100}\b(?:differ|different)|what(?:'s| is) the difference)\b", question, re.I)
+        or (re.match(r"\s*(?:is|are)\b", question, re.I) and re.search(r"\b(?:different|same|mean)\b", question, re.I))
+    )
+
+
 def requested_period(question, state, today):
     lower = question.lower()
     if "last month" in lower or "previous month" in lower:
@@ -45,11 +58,23 @@ def requested_period(question, state, today):
     return None
 
 
+def resumes_pending_calculation(question, state):
+    """Recognize a short reply to a missing-facts request without guessing a new intent."""
+    lower = question.lower()
+    if state.pending != "verified_facts" or not state.tools:
+        return False
+    if any(term in lower for terms in TOOL_WORDS.values() for term in terms):
+        return False
+    if re.search(r"\b(?:another question|different question|instead)\b", lower):
+        return False
+    return bool(re.search(r"\b(?:added|confirmed|entered|updated|provided|done|ready|answer|retry)\b|try again", lower))
+
+
 def local_plan(question, state, today):
     lower = question.lower()
     period = requested_period(question, state, today)
-    followup = bool(re.match(r"\s*(?:what about|and |same|how about)", lower))
-    education = bool(re.match(r"\s*(?:what (?:is|are|does)|explain|define|tell me about|how does|why )", lower)) and not re.search(r"\bmy\b", lower)
+    followup = bool(re.match(r"\s*(?:what about|and |same|how about)", lower)) or resumes_pending_calculation(question, state)
+    education = is_education_question(question)
     topics = [topic for topic, terms in TOPIC_WORDS.items() if any(t in lower for t in terms)]
     if education:
         return Plan(calls=[ToolRequest(name="lookup_finance_topic", arguments=ToolArguments(topic=t)) for t in topics[:8]], clarification=None if topics else "topic")
@@ -109,7 +134,7 @@ class ConversationAgent:
             return AgentOrchestrator(None, self.executor.user_id).answer(question), state, False
         boundary = evaluate_financial_request(question)
         public_only = boundary.decision == Decision.BLOCK
-        education_question = bool(re.match(r"\s*(?:what (?:is|are|does)|explain|define|how does)", question, re.I)) and not re.search(r"\bmy\b", question, re.I)
+        education_question = is_education_question(question)
         if public_only and boundary.reason != "specific_product_or_guaranteed_outcome" and not education_question:
             return AgentOrchestrator(None, self.executor.user_id).answer(question), ConversationState(), False
         if re.search(r"\b(?:tax|itr|tds)\b", question, re.I) and not re.match(r"\s*(?:what|explain|define|how does)", question, re.I):
@@ -128,6 +153,7 @@ class ConversationAgent:
         if re.search(r"\b(?:create|save|update|delete|confirm|change)\b.{0,30}\b(?:fact|plan|income|expense|record)\b", question, re.I):
             return AgentAnswer(Intent.PLANNING_ACTION, "Use Financial Memory or My Plan to review and confirm changes. Chat cannot change your records.", [{"type": "clarification", "code": "verified_facts", "content": CLARIFICATIONS["verified_facts"]}]), ConversationState(), False
         fallback = local_plan(question, state, today)
+        resuming_pending = resumes_pending_calculation(question, state)
         if public_only:
             public_topic = "insurance" if "insurance" in question.lower() else "investing"
             fallback = Plan(calls=[ToolRequest(name="lookup_finance_topic", arguments=ToolArguments(topic=public_topic))])
@@ -173,7 +199,7 @@ class ConversationAgent:
         explicit_period = requested_period(question, state, today)
         context = {"question": sanitize_question(question), "state": {"tools": state.tools, "period_start": state.period_start.isoformat() if state.period_start else None, "topic": state.topic, "pending": state.pending}, "today": today.isoformat(),
                    "requested_period": explicit_period.isoformat() if explicit_period else None,
-                   "allowed_tools": ["lookup_finance_topic"] if public_only else [*HANDLERS, "lookup_finance_topic"]}
+                   "allowed_tools": ["lookup_finance_topic"] if public_only or education_question else state.tools if resuming_pending else [*HANDLERS, "lookup_finance_topic"]}
         async def checkpoint():
             if disconnected and await disconnected():
                 raise asyncio.CancelledError()
@@ -212,7 +238,7 @@ class ConversationAgent:
                     if call.name != "lookup_finance_topic":
                         if explicit_period:
                             call.arguments.period_start = explicit_period
-                        elif re.match(r"\s*(?:what about|and |same|how about)", question.lower()) and state.period_start:
+                        elif (re.match(r"\s*(?:what about|and |same|how about)", question.lower()) or resuming_pending) and state.period_start:
                             call.arguments.period_start = state.period_start
                         elif call.arguments.period_start is not None:
                             # The model may not invent a historical period absent local evidence.
@@ -258,7 +284,7 @@ class ConversationAgent:
             self.metrics["fallback"] = True
         blocks = [b for r in results for b in r.blocks]
         narrative = "\n\n".join(r.narrative for r in results)
-        if model_summary:
+        if model_summary and not any(r.tool_name in HANDLERS and r.status == "complete" for r in results):
             narrative = model_summary
         if public_only and not education_question:
             narrative = PRODUCT_SELECTION_RESPONSE
@@ -267,7 +293,9 @@ class ConversationAgent:
         # not replace a concrete request with a vague "update your memory" message.
         if missing_blocks and all(r.status == "missing" for r in results):
             narrative = "\n\n".join(dict.fromkeys(r.narrative for r in results))
-        pending = "verified_facts" if missing_blocks else plan.clarification
+        # A successful tool result has already answered the request. A planner's
+        # speculative clarification must not tell the user to provide missing data.
+        pending = "verified_facts" if missing_blocks else plan.clarification if not results else None
         if pending and not missing_blocks:
             blocks.append({"type": "clarification", "code": pending, "content": CLARIFICATIONS[pending]})
         if not results:

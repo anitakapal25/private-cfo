@@ -77,6 +77,7 @@ test('Financial Memory groups dated values and confirms a reviewed batch', async
 });
 
 test('Financial Memory is read-first, preserves unknown versus zero, and shows traced money left', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-04T00:00:00Z') });
   await mockAuthenticatedShell(page, [
     financialFact('monthly_income', '87600'), financialFact('monthly_expenses', '42000'),
     financialFact('monthly_debt_payments', '10000'), financialFact('total_liabilities', '0'),
@@ -284,6 +285,8 @@ for (const expired of [false, true]) {
       await expect(page.getByText('Your confirmed scenario has been calculated.')).toHaveCount(0);
     } else {
       await expect(page.getByText('Not yet on track for age 44')).toBeVisible();
+      await expect(page.getByText('What you may have saved')).toBeVisible();
+      await expect(page.getByText('Gap to your goal')).toBeVisible();
       await expect(form).toHaveCount(0);
     }
   });
@@ -466,4 +469,30 @@ test('conversation shows reviewed sources, partial coverage and clarification', 
   await expect(page.getByRole('link', { name: 'SEBI · Income and expenses' })).toHaveAttribute('href', 'https://investor.sebi.gov.in/moneymatters-inc-exp.html');
   await expect(page.getByRole('region', { name: 'Clarification' })).toContainText('Which month and year');
   await expect(page.getByRole('region', { name: 'Available coverage' })).toContainText('rates are not available');
+});
+
+test('AI education answer renders readable bullets and compact source links', async ({ page }) => {
+  await mockAuthenticatedShell(page);
+  await page.route('**/api/v1/agent/conversations/*/messages', route => route.fulfill({ json: {
+    message_id: 'education-message', role: 'assistant', created_at: '2026-10-03T00:00:00Z',
+    model_used: true, model_provider: 'openai',
+    content: 'Yes, they are different:\n\n- **Loan balance** is what remains on one loan. ([rbi.org.in](https://www.rbi.org.in/example?utm_source=openai))\n- **Total debt** includes all borrowing. ([investor.sebi.gov.in](https://investor.sebi.gov.in/example))',
+    blocks: [{ type: 'web_research', sources: [
+      { source_id: 'rbi', title: 'https://www.rbi.org.in/example', url: 'https://www.rbi.org.in/example' },
+      { source_id: 'sebi', title: 'https://investor.sebi.gov.in/example', url: 'https://investor.sebi.gov.in/example' },
+    ], limitations: ['General education only.'] }],
+  } }));
+  await signIn(page);
+  await page.getByRole('button', { name: 'Ask Artha', exact: true }).click();
+  await page.getByLabel('Ask about your finances').fill('Is total debt and loan balance different?');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const answer = page.locator('.message.assistant').last();
+  await expect(answer.getByRole('listitem')).toHaveCount(2);
+  await expect(answer.locator('.message-content strong')).toHaveText(['Loan balance', 'Total debt']);
+  await expect(answer.getByRole('link', { name: 'Open RBI source in a new tab' })).toHaveAttribute('href', 'https://www.rbi.org.in/example?utm_source=openai');
+  await expect(answer).not.toContainText('**');
+  await expect(answer).not.toContainText('utm_source');
+  await page.screenshot({ path: test.info().outputPath('formatted-answer.png'), fullPage: true });
+  await answer.getByText('Sources (2)').click();
+  await expect(answer.getByRole('link', { name: 'SEBI source' }).last()).toHaveAttribute('href', 'https://investor.sebi.gov.in/example');
 });

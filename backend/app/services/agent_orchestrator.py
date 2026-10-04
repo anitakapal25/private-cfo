@@ -409,14 +409,21 @@ class AgentOrchestrator:
         return AgentAnswer(
             intent=Intent.FREEDOM_PLAN,
             narrative=(
-                f"Based on this projection, you are on track to reach your target by age {freedom_inputs.target_age}. "
-                f"Your projected corpus is {_format_inr(result['projected_corpus']['amount'])}, compared with an estimated "
-                f"requirement of {_format_inr(result['required_corpus']['amount'])}. This is a planning projection, not a guarantee."
+                "Financial freedom means having enough saved to help pay for everyday costs without relying on a salary. "
+                f"For example, this scenario estimates monthly living costs of {_format_inr(result['target_monthly_expenses']['amount'])} "
+                f"at age {freedom_inputs.target_age}. Imagine paying rent, groceries and bills from savings instead of a salary.\n\n"
+                f"Your current plan looks on track for age {freedom_inputs.target_age}. "
+                "The savings this plan may build meet the estimated amount needed for those costs. "
+                "The card below shows both amounts. This is a planning estimate, not a guarantee."
                 if result["scenario_status"] == "on_track" else
-                f"Based on this projection, you are not yet on track to reach financial freedom by age {freedom_inputs.target_age}. "
-                f"Your projected corpus is {_format_inr(result['projected_corpus']['amount'])}, compared with an estimated "
-                f"requirement of {_format_inr(result['required_corpus']['amount'])}, leaving a projected shortfall of "
-                f"{_format_inr(result['freedom_gap']['amount'])}. This calculation does not yet determine a later achievement age."
+                "Financial freedom means having enough saved to help pay for everyday costs without relying on a salary. "
+                f"For example, this scenario estimates monthly living costs of {_format_inr(result['target_monthly_expenses']['amount'])} "
+                f"at age {freedom_inputs.target_age}. Imagine paying rent, groceries and bills from savings instead of a salary.\n\n"
+                f"Your current plan is not yet on track for age {freedom_inputs.target_age}. "
+                "The savings this plan may build are below the estimated amount needed for those costs. "
+                "The card below shows what you may have, what you may need, and the gap.\n\n"
+                "You can change the monthly amount you plan to add, your target age, or your expected living costs "
+                "to compare scenarios. This calculation does not tell us what later age you might reach the goal."
             ),
             blocks=[self._calculation_block(record, result)],
             tool_name="calculate_financial_freedom_projection",
