@@ -63,10 +63,6 @@ def main() -> int:
             if pattern.search(content):
                 findings.append(f"{path.relative_to(ROOT)}: possible {label}")
 
-    agent_router = (ROOT / "backend/app/routers/agent.py").read_text()
-    if "Depends(get_current_active_user)" not in agent_router:
-        findings.append("backend/app/routers/agent.py: authentication guard is missing")
-
     forbidden_tracked_roots = (ROOT / "uploads", ROOT / ".env")
     for path in forbidden_tracked_roots:
         if path.is_file():

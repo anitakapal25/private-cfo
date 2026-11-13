@@ -12,6 +12,23 @@ Track implementation progress for the Financial Freedom Copilot (ArthaOS) agent 
 
 ## Current Status: Basic Agent Backend and Frontend Working
 
+### 2026-11-13: Legacy agent removal and root README
+
+- Removed the unmounted legacy router `backend/app/routers/agent.py` and the
+  `backend/app/tools/` package that only it imported (float-based Monte Carlo,
+  legacy tax/insurance/investment/goal tools and server-side document tools).
+  `main.py` never mounted the router; `test_security_boundaries.py` continues to
+  assert that no `/api/agent` or `/documents` route exists.
+- Removed `backend/app/services/public_information.py`, which had no importers.
+- Removed the repository-guardrail check that read the deleted router, the two
+  tests of the unused `calculate_real_return` helper, and the `numpy` requirement
+  that only the deleted simulation used.
+- Added a root `README.md` for onboarding. Historical entries below still mention
+  the removed files; they record past work and were left unchanged.
+- Validation: backend tests (266 passed, 11 skipped), documentation, repository
+  guardrail and dependency-health checks passed. Frontend checks were not run in
+  this change because no frontend code changed.
+
 ### 2026-09-14: Targeted deprecation cleanup
 
 - Replaced application `datetime.utcnow()` calls with shared timezone-aware UTC

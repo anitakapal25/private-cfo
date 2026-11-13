@@ -1,6 +1,5 @@
 import asyncio
 from datetime import date
-from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +17,6 @@ from app.routers.agent_v1 import CLOUD_ASSISTANCE_CATEGORIES, CreateFinancialFac
 from app.routers.account_aggregator import AccountAggregatorConnectionResponse
 from app.routers.investment_platform import InvestmentPlatformConnectionResponse
 from app.routers.webhook import WebhookSubscriptionResponse
-from app.tools.financial_tools import calculate_real_return
 from app.guardrails.assumption_freshness import (
     StaleAssumptionError,
     VersionedAssumption,
@@ -144,18 +142,6 @@ def test_encryption_fails_closed_without_key(monkeypatch):
 
     with pytest.raises(crypto.EncryptionConfigurationError):
         crypto.encrypt_secret("sensitive-token")
-
-
-def test_real_return_uses_geometric_relationship():
-    result = calculate_real_return(Decimal("0.10"), Decimal("0.06"))
-
-    assert result == (Decimal("1.10") / Decimal("1.06")) - Decimal("1")
-    assert result != Decimal("0.04")
-
-
-def test_real_return_rejects_invalid_inflation():
-    with pytest.raises(ValueError):
-        calculate_real_return(Decimal("0.10"), Decimal("-1"))
 
 
 def test_authorization_guard_rejects_conflicting_user_id():

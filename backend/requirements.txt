@@ -9,7 +9,6 @@ pydantic-settings==2.14.2
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
 cryptography==49.0.0
-numpy==2.4.6
 python-multipart==0.0.32
 requests==2.34.2
 pytest==9.0.3
